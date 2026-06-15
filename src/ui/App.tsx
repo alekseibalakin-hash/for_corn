@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { BUILD_TAG } from './constants';
 import { Board } from './components/Board';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ExpiryBanner } from './components/ExpiryBanner';
@@ -59,6 +60,7 @@ export default function App() {
       <p className="mt-1 text-center text-xs font-semibold text-muted">
         Свайпай по полю или жми стрелки. Собирай подарки ❤️
       </p>
+      <p className="text-center text-[10px] font-semibold text-muted/50">{BUILD_TAG}</p>
 
       <Wallet
         open={walletOpen}

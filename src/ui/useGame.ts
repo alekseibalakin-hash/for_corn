@@ -26,7 +26,7 @@ import { isGameOver } from '../game/status';
 import { maxTile } from '../game/grid';
 import { WIN_TILE, type Direction } from '../game/types';
 import { haptics, initTelegram } from '../telegram';
-import { createRepository, createStore, type GameRepository } from '../storage';
+import { createRepository, createStore, STORAGE_VERSION, type GameRepository } from '../storage';
 import { rewardText, rewardTitle } from './format';
 import { gridToTiles, slideTiles, spawnInTiles, tilesToGrid, type Tile } from './tiles';
 import type { Reveal, RedeemCelebration } from './uiTypes';
@@ -121,6 +121,18 @@ export function useGame() {
 
       let boardP, statsP, walletP, historyP, progressP;
       try {
+        // Разовый сброс всех сессий: по смене STORAGE_VERSION ИЛИ по ?reset=1 в URL.
+        const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const forceReset = !!params && params.has('reset');
+        const ver = await repo.getVersion();
+        if (forceReset || ver !== STORAGE_VERSION) {
+          await repo.resetState();
+          await repo.setVersion(STORAGE_VERSION);
+          if (import.meta.env.DEV) {
+            console.info('[storage] состояние сброшено →', STORAGE_VERSION, forceReset ? '(ручной ?reset)' : '(смена версии)');
+          }
+        }
+
         [boardP, statsP, walletP, historyP, progressP] = await Promise.all([
           repo.loadBoard(),
           repo.loadStats(),

@@ -61,6 +61,10 @@ export interface GameRepository {
   saveHistory(history: HistoryEntry[]): Promise<void>;
   loadProgress(): Promise<Progress | null>;
   saveProgress(progress: Progress): Promise<void>;
+  getVersion(): Promise<string | null>;
+  setVersion(v: string): Promise<void>;
+  /** Полный сброс игрового состояния (партия, статы, кошелёк, история, прогресс). */
+  resetState(): Promise<void>;
 }
 
 export function createRepository(store: KVStore): GameRepository {
@@ -76,5 +80,16 @@ export function createRepository(store: KVStore): GameRepository {
     saveHistory: (history) => saveJSON(store, STORAGE_KEYS.history, trimHistory(history)),
     loadProgress: () => loadJSON<Progress>(store, STORAGE_KEYS.progress),
     saveProgress: (progress) => saveJSON(store, STORAGE_KEYS.progress, progress),
+    getVersion: () => store.getItem(STORAGE_KEYS.version),
+    setVersion: (v) => store.setItem(STORAGE_KEYS.version, v),
+    resetState: async () => {
+      await Promise.all([
+        store.removeItem(STORAGE_KEYS.board),
+        store.removeItem(STORAGE_KEYS.stats),
+        store.removeItem(STORAGE_KEYS.wallet),
+        store.removeItem(STORAGE_KEYS.history),
+        store.removeItem(STORAGE_KEYS.progress),
+      ]);
+    },
   };
 }

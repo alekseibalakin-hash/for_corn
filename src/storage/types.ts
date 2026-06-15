@@ -12,6 +12,13 @@ export const STORAGE_KEYS = {
   wallet: 'wallet', // активные купоны
   history: 'history', // использованные + сгоревшие
   progress: 'progress', // unlocked, cooldowns, дневной счётчик
+  version: 'schemaVersion', // версия данных — для разового сброса (см. STORAGE_VERSION)
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
+
+/**
+ * Версия сохранённого состояния. Если в хранилище лежит другая (или её нет) — данные
+ * обнуляются один раз при загрузке. Поднимай это число, когда нужно «сбросить всем в ноль».
+ */
+export const STORAGE_VERSION = '3';

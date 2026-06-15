@@ -60,4 +60,17 @@ describe('repository round-trip', () => {
     const loaded = await repo.loadHistory();
     expect(loaded!.length).toBeLessThanOrEqual(120);
   });
+
+  it('version round-trip и resetState чистят игровое состояние', async () => {
+    const repo = createRepository(memoryBackend());
+    await repo.saveStats({ ...defaultStats(), totalScore: 999 });
+    await repo.saveHistory([entry(1)]);
+    await repo.setVersion('3');
+    expect(await repo.getVersion()).toBe('3');
+
+    await repo.resetState();
+    expect(await repo.loadStats()).toBeNull();
+    expect(await repo.loadHistory()).toBeNull();
+    expect(await repo.getVersion()).toBe('3'); // версию resetState НЕ трогает
+  });
 });
