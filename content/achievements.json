@@ -1,0 +1,165 @@
+{
+  "_comment": "Правила выдачи купонов. trigger — условие над stats (DESIGN §4-5). Награда: rewardTier (случайный из тира) ИЛИ rewardId. type (milestone|challenge) — тип триггера; ЖИЗНЕННЫЙ ЦИКЛ ЕДИНЫЙ (DESIGN §15): задание завершается навсегда при ИСПОЛЬЗОВАНИИ купона (больше не выпадает); если купон сгорел — задание снова доступно. Необязательное note — личное слово на раскрытии. limits.maxChallengeCouponsPerDay — темп-ограничитель на купоны-от-challenge в сутки. Пороги — ручка настройки, правятся без кода.",
+  "limits": {
+    "maxChallengeCouponsPerDay": 3
+  },
+  "achievements": [
+    {
+      "id": "welcome",
+      "type": "milestone",
+      "title": "Добро пожаловать ❤️",
+      "description": "Сделай первый ход",
+      "trigger": { "stat": "gamesPlayed", "op": ">=", "value": 1 },
+      "rewardTier": "small",
+      "note": "Это всё для тебя. Отдыхай и играй в своё удовольствие ❤️"
+    },
+    {
+      "id": "reach-128",
+      "type": "milestone",
+      "title": "Разминка",
+      "description": "Собери плитку 128",
+      "trigger": { "stat": "maxTileThisGame", "op": ">=", "value": 128 },
+      "rewardTier": "small"
+    },
+    {
+      "id": "reach-256",
+      "type": "milestone",
+      "title": "Первая сотня с хвостиком",
+      "description": "Собери плитку 256",
+      "trigger": { "stat": "maxTileThisGame", "op": ">=", "value": 256 },
+      "rewardTier": "small"
+    },
+    {
+      "id": "reach-512",
+      "type": "milestone",
+      "title": "Полтысячи!",
+      "description": "Собери плитку 512",
+      "trigger": { "stat": "maxTileThisGame", "op": ">=", "value": 512 },
+      "rewardTier": "medium",
+      "note": "Горжусь тобой, моя умница 💛"
+    },
+    {
+      "id": "reach-1024",
+      "type": "milestone",
+      "title": "На пути к вершине",
+      "description": "Собери плитку 1024",
+      "trigger": { "stat": "maxTileThisGame", "op": ">=", "value": 1024 },
+      "rewardTier": "medium"
+    },
+    {
+      "id": "reach-2048",
+      "type": "milestone",
+      "title": "ПОБЕДА — 2048!",
+      "description": "Собери легендарную плитку 2048",
+      "trigger": { "stat": "maxTileThisGame", "op": ">=", "value": 2048 },
+      "rewardId": "restaurant",
+      "note": "Ты — моя главная победа. Горжусь тобой бесконечно ❤️"
+    },
+    {
+      "id": "reach-4096",
+      "type": "milestone",
+      "title": "За гранью",
+      "description": "Собери плитку 4096",
+      "trigger": { "stat": "maxTileThisGame", "op": ">=", "value": 4096 },
+      "rewardTier": "large"
+    },
+    {
+      "id": "total-100k",
+      "type": "milestone",
+      "title": "Сто тысяч любви",
+      "description": "Набери 100 000 очков суммарно за всё время",
+      "trigger": { "stat": "totalScore", "op": ">=", "value": 100000 },
+      "rewardTier": "medium"
+    },
+    {
+      "id": "total-300k",
+      "type": "milestone",
+      "title": "Триста тысяч",
+      "description": "Набери 300 000 очков суммарно за всё время",
+      "trigger": { "stat": "totalScore", "op": ">=", "value": 300000 },
+      "rewardTier": "large"
+    },
+    {
+      "id": "total-1m",
+      "type": "milestone",
+      "title": "Миллион",
+      "description": "Набери 1 000 000 очков суммарно за всё время",
+      "trigger": { "stat": "totalScore", "op": ">=", "value": 1000000 },
+      "rewardTier": "large"
+    },
+    {
+      "id": "session-6000",
+      "type": "challenge",
+      "title": "Разогналась",
+      "description": "Набери 6000 очков за одну игру",
+      "trigger": { "stat": "sessionScore", "op": ">=", "value": 6000 },
+      "rewardTier": "small",
+      "cooldownDays": 1
+    },
+    {
+      "id": "session-15000",
+      "type": "challenge",
+      "title": "В ударе",
+      "description": "Набери 15 000 очков за одну игру",
+      "trigger": { "stat": "sessionScore", "op": ">=", "value": 15000 },
+      "rewardTier": "small",
+      "cooldownDays": 1
+    },
+    {
+      "id": "session-30000",
+      "type": "challenge",
+      "title": "Виртуоз",
+      "description": "Набери 30 000 очков за одну игру",
+      "trigger": { "stat": "sessionScore", "op": ">=", "value": 30000 },
+      "rewardTier": "medium",
+      "cooldownDays": 2
+    },
+    {
+      "id": "fast-256",
+      "type": "challenge",
+      "title": "Молния",
+      "description": "Дойди до 256 быстрее двух минут",
+      "trigger": {
+        "allOf": [
+          { "stat": "maxTileThisGame", "op": ">=", "value": 256 },
+          { "stat": "timeToCurrentMaxTileSec", "op": "<=", "value": 120 }
+        ]
+      },
+      "rewardTier": "small",
+      "cooldownDays": 1
+    },
+    {
+      "id": "fast-512",
+      "type": "challenge",
+      "title": "Реактивная",
+      "description": "Дойди до 512 быстрее четырёх минут",
+      "trigger": {
+        "allOf": [
+          { "stat": "maxTileThisGame", "op": ">=", "value": 512 },
+          { "stat": "timeToCurrentMaxTileSec", "op": "<=", "value": 240 }
+        ]
+      },
+      "rewardTier": "medium",
+      "cooldownDays": 2
+    },
+    {
+      "id": "streak-3",
+      "type": "challenge",
+      "title": "Втянулась",
+      "description": "Играй три дня подряд",
+      "trigger": { "stat": "dailyStreak", "op": ">=", "value": 3 },
+      "rewardTier": "small",
+      "cooldownDays": 3
+    },
+    {
+      "id": "streak-7",
+      "type": "challenge",
+      "title": "Неделя любви",
+      "description": "Играй семь дней подряд",
+      "trigger": { "stat": "dailyStreak", "op": ">=", "value": 7 },
+      "rewardTier": "medium",
+      "cooldownDays": 7,
+      "note": "Спасибо, что ты есть у меня каждый день 💕"
+    }
+  ]
+}

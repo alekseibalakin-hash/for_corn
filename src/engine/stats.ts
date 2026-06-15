@@ -1,0 +1,109 @@
+import type { CumulativeStats, CurrentGameStats, Progress, StatSnapshot } from './types';
+import { previousYMD } from './time';
+
+export function defaultStats(): CumulativeStats {
+  return {
+    totalScore: 0,
+    bestScore: 0,
+    bestTile: 0,
+    gamesPlayed: 0,
+    totalMoves: 0,
+    dailyStreak: 0,
+    lastPlayedDate: null,
+    firstPlayedDate: null,
+    rewardsRedeemed: 0,
+  };
+}
+
+export function defaultCurrentGame(now: number): CurrentGameStats {
+  return {
+    sessionScore: 0,
+    maxTileThisGame: 0,
+    movesThisGame: 0,
+    gameStartTs: now,
+    timeToCurrentMaxTileSec: 0,
+  };
+}
+
+export function defaultProgress(today: string): Progress {
+  return {
+    completed: [],
+    challengeCooldowns: {},
+    challengeCouponsToday: 0,
+    couponDayDate: today,
+    onboardingSeen: false,
+    victorySeenForCount: undefined,
+  };
+}
+
+/**
+ * Мягкое чтение сохранённого progress: заполняет недостающие поля дефолтами и
+ * игнорирует старую форму (`unlockedMilestones` из v1). Миграция до релиза не нужна
+ * (DESIGN §15) — отсутствие поля просто означает «с нуля по этому полю».
+ */
+export function normalizeProgress(raw: Partial<Progress> | null | undefined, today: string): Progress {
+  const base = defaultProgress(today);
+  if (!raw || typeof raw !== 'object') return base;
+  return {
+    completed: Array.isArray(raw.completed) ? raw.completed : [],
+    challengeCooldowns:
+      raw.challengeCooldowns && typeof raw.challengeCooldowns === 'object' ? raw.challengeCooldowns : {},
+    challengeCouponsToday: typeof raw.challengeCouponsToday === 'number' ? raw.challengeCouponsToday : 0,
+    couponDayDate: typeof raw.couponDayDate === 'string' ? raw.couponDayDate : today,
+    onboardingSeen: raw.onboardingSeen === true,
+    victorySeenForCount: typeof raw.victorySeenForCount === 'number' ? raw.victorySeenForCount : undefined,
+  };
+}
+
+/**
+ * Плоский snapshot для движка. Cumulative-показатели берутся «вживую»:
+ * текущая партия прибавляется к итогам, иначе вехи totalScore/bestScore не
+ * срабатывали бы до конца игры (DESIGN §4-5: считаем после каждого хода).
+ */
+export function buildSnapshot(stats: CumulativeStats, game: CurrentGameStats): StatSnapshot {
+  return {
+    sessionScore: game.sessionScore,
+    maxTileThisGame: game.maxTileThisGame,
+    movesThisGame: game.movesThisGame,
+    timeToCurrentMaxTileSec: game.timeToCurrentMaxTileSec,
+    totalScore: stats.totalScore + game.sessionScore,
+    bestScore: Math.max(stats.bestScore, game.sessionScore),
+    bestTile: Math.max(stats.bestTile, game.maxTileThisGame),
+    gamesPlayed: stats.gamesPlayed,
+    totalMoves: stats.totalMoves + game.movesThisGame,
+    dailyStreak: stats.dailyStreak,
+    rewardsRedeemed: stats.rewardsRedeemed,
+  };
+}
+
+/**
+ * Закрытие партии: вкатываем её показатели в cumulative. gamesPlayed уже
+ * посчитан при старте партии, поэтому здесь его не трогаем.
+ */
+export function commitGame(stats: CumulativeStats, game: CurrentGameStats): CumulativeStats {
+  return {
+    ...stats,
+    totalScore: stats.totalScore + game.sessionScore,
+    bestScore: Math.max(stats.bestScore, game.sessionScore),
+    bestTile: Math.max(stats.bestTile, game.maxTileThisGame),
+    totalMoves: stats.totalMoves + game.movesThisGame,
+  };
+}
+
+/**
+ * Ежедневная отметка «играла сегодня»: ведёт серию и даты. Вызывается раз за
+ * вход/первую партию дня. today — локальная дата YYYY-MM-DD.
+ */
+export function dailyCheckIn(stats: CumulativeStats, today: string): CumulativeStats {
+  const firstPlayedDate = stats.firstPlayedDate ?? today;
+  if (stats.lastPlayedDate === today) {
+    return { ...stats, firstPlayedDate };
+  }
+  const continued = stats.lastPlayedDate === previousYMD(today);
+  return {
+    ...stats,
+    firstPlayedDate,
+    lastPlayedDate: today,
+    dailyStreak: continued ? stats.dailyStreak + 1 : 1,
+  };
+}
