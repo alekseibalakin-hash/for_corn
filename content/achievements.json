@@ -160,6 +160,78 @@
       "rewardTier": "medium",
       "cooldownDays": 7,
       "note": "Спасибо, что ты есть у меня каждый день 💕"
+    },
+    {
+      "id": "games-25",
+      "type": "milestone",
+      "title": "Завсегдатай",
+      "description": "Сыграй 25 партий",
+      "trigger": { "stat": "gamesPlayed", "op": ">=", "value": 25 },
+      "rewardTier": "small"
+    },
+    {
+      "id": "games-100",
+      "type": "milestone",
+      "title": "Сто партий любви",
+      "description": "Сыграй 100 партий",
+      "trigger": { "stat": "gamesPlayed", "op": ">=", "value": 100 },
+      "rewardTier": "medium"
+    },
+    {
+      "id": "moves-3000",
+      "type": "milestone",
+      "title": "Марафон",
+      "description": "Сделай 3000 ходов за всё время",
+      "trigger": { "stat": "totalMoves", "op": ">=", "value": 3000 },
+      "rewardTier": "small"
+    },
+    {
+      "id": "redeemed-5",
+      "type": "milestone",
+      "title": "Пять радостей",
+      "description": "Используй 5 наград",
+      "trigger": { "stat": "rewardsRedeemed", "op": ">=", "value": 5 },
+      "rewardTier": "medium"
+    },
+    {
+      "id": "reach-8192",
+      "type": "milestone",
+      "title": "Легенда",
+      "description": "Собери плитку 8192",
+      "trigger": { "stat": "maxTileThisGame", "op": ">=", "value": 8192 },
+      "rewardTier": "large"
+    },
+    {
+      "id": "session-45000",
+      "type": "challenge",
+      "title": "Космос",
+      "description": "Набери 45 000 очков за одну игру",
+      "trigger": { "stat": "sessionScore", "op": ">=", "value": 45000 },
+      "rewardTier": "large",
+      "cooldownDays": 2
+    },
+    {
+      "id": "fast-1024",
+      "type": "challenge",
+      "title": "Сверхзвук",
+      "description": "Дойди до 1024 быстрее восьми минут",
+      "trigger": {
+        "allOf": [
+          { "stat": "maxTileThisGame", "op": ">=", "value": 1024 },
+          { "stat": "timeToCurrentMaxTileSec", "op": "<=", "value": 480 }
+        ]
+      },
+      "rewardTier": "medium",
+      "cooldownDays": 3
+    },
+    {
+      "id": "streak-14",
+      "type": "challenge",
+      "title": "Две недели вместе",
+      "description": "Играй четырнадцать дней подряд",
+      "trigger": { "stat": "dailyStreak", "op": ">=", "value": 14 },
+      "rewardTier": "large",
+      "cooldownDays": 14
     }
   ]
 }
