@@ -9,29 +9,41 @@
 @tailwind utilities;
 
 @layer base {
+  /* Замок страницы: гасим прокрутку и «оттягивание» вьюпорта, чтобы свайпы по доске
+     не сворачивали мини-аппу (фолбэк для клиентов <7.7, безопасен и для 7.7). */
   html,
   body,
   #root {
     height: 100%;
+    overflow: hidden;
   }
 
   body {
+    position: fixed;
+    inset: 0;
+    width: 100%;
     margin: 0;
     background-color: theme('colors.cream');
     color: theme('colors.ink');
     font-family: theme('fontFamily.sans');
     -webkit-font-smoothing: antialiased;
-    /* Безопасные зоны Telegram / выреза экрана (DESIGN §9) */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
     overscroll-behavior: none;
   }
 
-  /* Игровое поле не должно скроллиться/выделяться при свайпах */
+  /* Безопасные зоны выреза держим на #root, а НЕ на body: при position:fixed на body
+     высота от env(safe-area-*) может схлопнуться (DESIGN §9). */
+  #root {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Игровое поле не скроллится/не выделяется при свайпах; overscroll-behavior:contain
+     не даёт жесту «утечь» наружу. touch-action:none остаётся только на доске. */
   .no-touch-pan {
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: contain;
   }
 }

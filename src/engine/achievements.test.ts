@@ -195,24 +195,31 @@ describe('награда: note, фикс и разнообразие', () => {
 });
 
 describe('реальный контент', () => {
-  it('welcome срабатывает на первом ходу (gamesPlayed≥1), кошелёк пуст', () => {
-    const snapshot: StatSnapshot = {
-      gamesPlayed: 1,
-      sessionScore: 0,
-      maxTileThisGame: 0,
-      movesThisGame: 1,
-      timeToCurrentMaxTileSec: 0,
-      totalScore: 0,
-      bestScore: 0,
-      bestTile: 0,
-      totalMoves: 1,
-      dailyStreak: 1,
-      rewardsRedeemed: 0,
-    };
-    const res = evaluateAchievements({ snapshot, progress: defaultProgress(TODAY), wallet: [], now: NOW, today: TODAY, rng: () => 0.5 });
+  const snapshotWithTile = (maxTile: number): StatSnapshot => ({
+    gamesPlayed: 1,
+    sessionScore: 0,
+    maxTileThisGame: maxTile,
+    movesThisGame: 10,
+    timeToCurrentMaxTileSec: 999,
+    totalScore: 0,
+    bestScore: 0,
+    bestTile: maxTile,
+    totalMoves: 10,
+    dailyStreak: 1,
+    rewardsRedeemed: 0,
+  });
+
+  it('welcome срабатывает на плитке 64', () => {
+    const res = evaluateAchievements({ snapshot: snapshotWithTile(64), progress: defaultProgress(TODAY), wallet: [], now: NOW, today: TODAY, rng: () => 0.5 });
     const ids = res.grants.map((g) => g.achievement.id);
     expect(ids).toContain('welcome');
     const welcome = res.grants.find((g) => g.achievement.id === 'welcome');
     expect(welcome?.coupon.note).toBe('Это всё для тебя. Отдыхай и играй в своё удовольствие ❤️');
+  });
+
+  it('welcome НЕ срабатывает до плитки 64 (например, на 32)', () => {
+    const res = evaluateAchievements({ snapshot: snapshotWithTile(32), progress: defaultProgress(TODAY), wallet: [], now: NOW, today: TODAY, rng: () => 0.5 });
+    const ids = res.grants.map((g) => g.achievement.id);
+    expect(ids).not.toContain('welcome');
   });
 });

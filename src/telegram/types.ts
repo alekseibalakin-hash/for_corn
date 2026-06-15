@@ -36,6 +36,11 @@ export interface WebApp {
   ready(): void;
   expand(): void;
   isExpanded?: boolean;
+  // Управление нативным вертикальным свайп-жестом (Bot API 7.7). Опциональны:
+  // на клиентах <7.7 и в mock их нет.
+  disableVerticalSwipes?(): void;
+  enableVerticalSwipes?(): void;
+  isVerticalSwipesEnabled?: boolean;
   colorScheme?: 'light' | 'dark';
   setHeaderColor?(color: string): void;
   setBackgroundColor?(color: string): void;

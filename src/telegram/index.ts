@@ -34,7 +34,14 @@ export function initTelegram(): void {
   const tg = getWebApp();
   try {
     tg.ready();
-    tg.expand();
+    if (!tg.isExpanded) tg.expand();
+    // Отключаем нативный вертикальный свайп-жест Telegram (Bot API 7.7), чтобы
+    // горизонтальные свайпы по доске не сворачивали мини-аппу вниз.
+    // Двойной гейт обязателен: mock отдаёт isVersionAtLeast:()=>true, но метода не
+    // определяет — проверка typeof не даёт упасть в браузере/на старых клиентах.
+    if (tg.isVersionAtLeast?.('7.7') && typeof tg.disableVerticalSwipes === 'function') {
+      tg.disableVerticalSwipes();
+    }
     tg.setHeaderColor?.('#FBF3EC');
     tg.setBackgroundColor?.('#FBF3EC');
   } catch {

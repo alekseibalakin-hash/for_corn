@@ -92,8 +92,11 @@ export function createMockWebApp(): WebApp {
     colorScheme: 'light',
     isExpanded: true,
     isVersionAtLeast: () => true,
+    isVerticalSwipesEnabled: false,
     ready: () => void 0,
     expand: () => void 0,
+    disableVerticalSwipes: () => void 0,
+    enableVerticalSwipes: () => void 0,
     setHeaderColor: () => void 0,
     setBackgroundColor: () => void 0,
   };

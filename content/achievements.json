@@ -7,9 +7,9 @@
     {
       "id": "welcome",
       "type": "milestone",
-      "title": "Добро пожаловать ❤️",
-      "description": "Сделай первый ход",
-      "trigger": { "stat": "gamesPlayed", "op": ">=", "value": 1 },
+      "title": "Освоилась ❤️",
+      "description": "Собери плитку 64",
+      "trigger": { "stat": "maxTileThisGame", "op": ">=", "value": 64 },
       "rewardTier": "small",
       "note": "Это всё для тебя. Отдыхай и играй в своё удовольствие ❤️"
     },
