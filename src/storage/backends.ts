@@ -83,6 +83,82 @@ export function memoryBackend(seed: Record<string, string> = {}): KVStore {
 }
 
 /**
+ * Координатор записи поверх async-бэкенда (CloudStorage). Чинит баг потери прогресса: за сессию
+ * 2048 пишет в Telegram CloudStorage на КАЖДОМ ходу (board/stats) + на наградах (wallet/progress) —
+ * десятки несериализованных записей. Реальный CloudStorage под таким потоком троттлит/теряет/
+ * переставляет записи → состояние сессии не закрепляется, при перезаходе откат к последнему
+ * «дошедшему» (вчерашнему). Решение:
+ *  - коалесинг по ключу: держим только ПОСЛЕДНЕЕ значение, промежуточные не пишем;
+ *  - сериализация: записи по очереди (без гонок) → last-write-wins, без клоббера старым;
+ *  - троттл: пачка ходов схлопывается в ~одну запись на ключ за окно;
+ *  - flush при сворачивании/закрытии аппы (visibilitychange/pagehide) — финальное состояние
+ *    гарантированно уходит, когда она выходит;
+ *  - read-your-writes: getItem отдаёт ещё не сброшенное значение (UI/boot видят свежее).
+ */
+export function coalescingStore(inner: KVStore, throttleMs = 400): KVStore {
+  const pending = new Map<string, string | null>(); // последнее значение ключа; null = удалить
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let chain: Promise<void> = Promise.resolve();
+
+  const doFlush = async (): Promise<void> => {
+    for (const key of [...pending.keys()]) {
+      const value = pending.get(key)!;
+      try {
+        if (value === null) await inner.removeItem(key);
+        else await inner.setItem(key, value);
+        // Не затираем запись из очереди, если её перезаписали НОВЫМ значением во время await.
+        if (pending.get(key) === value) pending.delete(key);
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('[storage] запись отложена (повтор позже):', key, err);
+        break; // оставить остаток в pending — повторим на следующем schedule/flush
+      }
+    }
+  };
+  const flush = (): Promise<void> => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    chain = chain.then(doFlush); // сериализуем: никаких конкурентных записей в один ключ
+    return chain;
+  };
+  const schedule = () => {
+    if (timer) return; // троттл (не дебаунс): не сдвигаем уже запланированный сброс
+    timer = setTimeout(() => {
+      timer = null;
+      void flush();
+    }, throttleMs);
+  };
+
+  if (typeof window !== 'undefined') {
+    const flushNow = () => void flush();
+    try {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushNow(); // Telegram свернул/закрыл аппу
+      });
+      window.addEventListener('pagehide', flushNow);
+    } catch {
+      /* no-op */
+    }
+  }
+
+  return {
+    async getItem(key) {
+      const v = pending.get(key);
+      return v === undefined ? inner.getItem(key) : v;
+    },
+    async setItem(key, value) {
+      pending.set(key, value);
+      schedule();
+    },
+    async removeItem(key) {
+      pending.set(key, null);
+      schedule();
+    },
+  };
+}
+
+/**
  * Боевой store (DESIGN §7):
  *  - настоящий Telegram с поддержкой CloudStorage (≥6.9) или mock → CloudStorage;
  *  - старый Telegram (CloudStorage не работает) → прямой localStorage;
@@ -96,7 +172,9 @@ export function createStore(): KVStore {
     if (import.meta.env.DEV) {
       console.info(`[storage] backend: CloudStorage${tg.isMock ? ' (mock → localStorage)' : ` (Telegram ${tg.version ?? '?'})`}`);
     }
-    return cloudStorageBackend(tg.CloudStorage);
+    // Координатор записи поверх CloudStorage: коалесинг/сериализация/троттл/flush-на-выходе —
+    // иначе частые записи (каждый ход) троттлятся CloudStorage и теряются (баг с откатом прогресса).
+    return coalescingStore(cloudStorageBackend(tg.CloudStorage));
   }
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
