@@ -8,11 +8,12 @@ import { RevealModal } from './components/RevealModal';
 import { VictoryBanner } from './components/VictoryBanner';
 import { Wallet } from './components/Wallet';
 
-// 2048 грузится ОТДЕЛЬНЫМ чанком (DESIGN-HUB §5): хаб стартует лёгким, будущие игры
-// (match3, zuma) не утяжелят старт. Никаких статических импортов из games/g2048.
+// Игры грузятся ОТДЕЛЬНЫМИ чанками (DESIGN-HUB §5): хаб стартует лёгким, игры не утяжелят
+// старт. Никаких статических импортов из games/*.
 const Game2048 = lazy(() => import('../games/g2048'));
+const Match3 = lazy(() => import('../games/match3'));
 
-type View = 'hub' | 'g2048';
+type View = 'hub' | 'g2048' | 'm3';
 
 function Shell() {
   const rewards = useRewards();
@@ -26,11 +27,23 @@ function Shell() {
 
   return (
     <>
-      {view === 'hub' ? (
-        <Hub onPlay={(id) => id === '2048' && setView('g2048')} onOpenWallet={openWallet} />
-      ) : (
+      {view === 'hub' && (
+        <Hub
+          onPlay={(id) => {
+            if (id === '2048') setView('g2048');
+            else if (id === 'm3') setView('m3');
+          }}
+          onOpenWallet={openWallet}
+        />
+      )}
+      {view === 'g2048' && (
         <Suspense fallback={<LoadingSplash />}>
           <Game2048 onBack={() => setView('hub')} onOpenWallet={openWallet} />
+        </Suspense>
+      )}
+      {view === 'm3' && (
+        <Suspense fallback={<LoadingSplash />}>
+          <Match3 onBack={() => setView('hub')} onOpenWallet={openWallet} />
         </Suspense>
       )}
 

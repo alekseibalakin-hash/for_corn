@@ -12,7 +12,19 @@ import { DAY_MS, type Coupon, type Grant, type Progress, type SkippedAchievement
  * dailyStreak/rewardsRedeemed) остаются level — они меняются ВНЕ хода (напр. стрик), и edge
  * их бы сломал (перехода в пределах одного хода у них нет).
  */
-const PER_GAME_STATS = new Set(['maxTileThisGame', 'sessionScore', 'movesThisGame', 'timeToCurrentMaxTileSec']);
+const PER_GAME_STATS = new Set([
+  // 2048
+  'maxTileThisGame',
+  'sessionScore',
+  'movesThisGame',
+  'timeToCurrentMaxTileSec',
+  // match3 (Фаза B) — сбрасываются с партией, восстанавливаются при резюме; edge-гейт не даёт
+  // уронить купон на первом свопе резюма партии с уже высоким счётом/комбо.
+  'm3_score',
+  'm3_combo',
+  'm3_moves',
+  'm3_biggestClear',
+]);
 
 function triggerUsesPerGameStat(trigger: Trigger): boolean {
   if (isCondition(trigger)) return PER_GAME_STATS.has(trigger.stat);

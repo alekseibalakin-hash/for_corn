@@ -1,5 +1,7 @@
 import type { Coupon, CumulativeStats, CurrentGameStats, HistoryEntry, Progress } from '../engine/types';
 import type { Grid } from '../game/types';
+import type { Board as Match3Board } from '../games/match3/logic';
+import type { M3CumulativeStats, M3CurrentGame } from '../games/match3/stats';
 import { STORAGE_KEYS, type KVStore } from './types';
 
 /** Сохранённая текущая партия для resume (DESIGN §3, ключ `board`). */
@@ -8,6 +10,12 @@ export interface PersistedBoard {
   game: CurrentGameStats;
   /** Показывали ли уже праздник «2048» — чтобы не дёргать его повторно. */
   won: boolean;
+}
+
+/** Сохранённая партия Match-3 для resume (Фаза B, ключ `match3.board`): поле + per-game статы. */
+export interface PersistedMatch3 {
+  board: Match3Board;
+  game: M3CurrentGame;
 }
 
 export function byteLength(str: string): number {
@@ -55,6 +63,12 @@ export interface GameRepository {
   clearBoard(): Promise<void>;
   loadStats(): Promise<CumulativeStats | null>;
   saveStats(stats: CumulativeStats): Promise<void>;
+  // --- Match-3 (Фаза B): свои ключи match3.board / match3.stats (зеркало board/stats 2048). ---
+  loadMatch3Board(): Promise<PersistedMatch3 | null>;
+  saveMatch3Board(board: PersistedMatch3): Promise<void>;
+  clearMatch3Board(): Promise<void>;
+  loadMatch3Stats(): Promise<M3CumulativeStats | null>;
+  saveMatch3Stats(stats: M3CumulativeStats): Promise<void>;
   loadWallet(): Promise<Coupon[] | null>;
   saveWallet(wallet: Coupon[]): Promise<void>;
   loadHistory(): Promise<HistoryEntry[] | null>;
@@ -74,6 +88,11 @@ export function createRepository(store: KVStore): GameRepository {
     clearBoard: () => store.removeItem(STORAGE_KEYS.board),
     loadStats: () => loadJSON<CumulativeStats>(store, STORAGE_KEYS.stats),
     saveStats: (stats) => saveJSON(store, STORAGE_KEYS.stats, stats),
+    loadMatch3Board: () => loadJSON<PersistedMatch3>(store, STORAGE_KEYS.match3Board),
+    saveMatch3Board: (board) => saveJSON(store, STORAGE_KEYS.match3Board, board),
+    clearMatch3Board: () => store.removeItem(STORAGE_KEYS.match3Board),
+    loadMatch3Stats: () => loadJSON<M3CumulativeStats>(store, STORAGE_KEYS.match3Stats),
+    saveMatch3Stats: (stats) => saveJSON(store, STORAGE_KEYS.match3Stats, stats),
     loadWallet: () => loadJSON<Coupon[]>(store, STORAGE_KEYS.wallet),
     saveWallet: (wallet) => saveJSON(store, STORAGE_KEYS.wallet, wallet),
     loadHistory: () => loadJSON<HistoryEntry[]>(store, STORAGE_KEYS.history),

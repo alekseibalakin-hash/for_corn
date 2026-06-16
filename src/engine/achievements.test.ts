@@ -295,3 +295,43 @@ describe('edge-triggering per-game вех (фикс «награда на пер
     expect(res.skipped).toContainEqual({ id: 'fast', reason: 'alreadyCrossed' });
   });
 });
+
+describe('edge-triggering m3 (тот же фикс резюма для Match-3, Фаза B)', () => {
+  const m3score: Achievement = {
+    ...tagged('m3-500', 'm3'),
+    trigger: { stat: 'm3_score', op: '>=', value: 500 },
+  };
+  const m3combo: Achievement = {
+    ...tagged('m3-combo', 'm3'),
+    trigger: { stat: 'm3_combo', op: '>=', value: 4 },
+  };
+
+  it('РЕЗЮМ партии с высоким m3_score: порог уже пройден ДО свопа → НЕ выдаётся', () => {
+    const res = run([m3score], defaultProgress(TODAY), {
+      gameId: 'm3',
+      snapshot: { m3_score: 900 },
+      prevSnapshot: { m3_score: 900 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'm3-500', reason: 'alreadyCrossed' });
+  });
+
+  it('ПЕРЕСЕЧЕНИЕ свопом: было <500, стало ≥500 → выдаётся', () => {
+    const res = run([m3score], defaultProgress(TODAY), {
+      gameId: 'm3',
+      snapshot: { m3_score: 520 },
+      prevSnapshot: { m3_score: 480 },
+    });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['m3-500']);
+  });
+
+  it('m3_combo тоже edge-гейтится: резюм с высоким комбо не роняет купон на первом свопе', () => {
+    const res = run([m3combo], defaultProgress(TODAY), {
+      gameId: 'm3',
+      snapshot: { m3_combo: 5 },
+      prevSnapshot: { m3_combo: 5 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'm3-combo', reason: 'alreadyCrossed' });
+  });
+});

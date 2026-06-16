@@ -232,6 +232,17 @@
       "trigger": { "stat": "dailyStreak", "op": ">=", "value": 14 },
       "rewardTier": "large",
       "cooldownDays": 14
-    }
+    },
+    {"id":"m3-warmup","type":"milestone","game":"m3","title":"Распробовала 🍓","description":"Набери 500 очков за игру","trigger":{"stat":"m3_score","op":">=","value":500},"rewardTier":"small","note":"И тут тебя ждут приятности, любимая ❤️"},
+    {"id":"m3-score-3000","type":"challenge","game":"m3","title":"Вкусно","description":"3000 очков за игру","trigger":{"stat":"m3_score","op":">=","value":3000},"rewardTier":"small","cooldownDays":1},
+    {"id":"m3-score-8000","type":"challenge","game":"m3","title":"Сахарный взрыв","description":"8000 очков за игру","trigger":{"stat":"m3_score","op":">=","value":8000},"rewardTier":"medium","cooldownDays":2},
+    {"id":"m3-score-20000","type":"challenge","game":"m3","title":"Сладкий шторм","description":"20000 очков за игру","trigger":{"stat":"m3_score","op":">=","value":20000},"rewardTier":"large","cooldownDays":2},
+    {"id":"m3-combo-4","type":"challenge","game":"m3","title":"Каскад","description":"Цепочка из 4 каскадов за ход","trigger":{"stat":"m3_combo","op":">=","value":4},"rewardTier":"small","cooldownDays":1},
+    {"id":"m3-combo-6","type":"challenge","game":"m3","title":"Цепная реакция","description":"Цепочка из 6 каскадов за ход","trigger":{"stat":"m3_combo","op":">=","value":6},"rewardTier":"medium","cooldownDays":2},
+    {"id":"m3-cleared-2000","type":"milestone","game":"m3","title":"Урожай","description":"Собери 2000 фишек суммарно","trigger":{"stat":"m3_gemsCleared","op":">=","value":2000},"rewardTier":"small"},
+    {"id":"m3-cleared-12000","type":"milestone","game":"m3","title":"Большой урожай","description":"Собери 12000 фишек суммарно","trigger":{"stat":"m3_gemsCleared","op":">=","value":12000},"rewardTier":"medium"},
+    {"id":"m3-games-20","type":"milestone","game":"m3","title":"Втянулась в тройки","description":"Сыграй 20 партий в Match-3","trigger":{"stat":"m3_gamesPlayed","op":">=","value":20},"rewardTier":"small"},
+    {"id":"m3-games-75","type":"milestone","game":"m3","title":"Мастер троек","description":"Сыграй 75 партий в Match-3","trigger":{"stat":"m3_gamesPlayed","op":">=","value":75},"rewardTier":"large"},
+    {"id":"m3-bigblast","type":"challenge","game":"m3","title":"Большой бабах","description":"Убери 20+ фишек одним ходом","trigger":{"stat":"m3_biggestClear","op":">=","value":20},"rewardTier":"medium","cooldownDays":1}
   ]
 }

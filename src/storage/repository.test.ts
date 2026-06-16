@@ -3,6 +3,8 @@ import type { HistoryEntry } from '../engine/types';
 import { memoryBackend } from './backends';
 import { byteLength, createRepository, trimHistory } from './repository';
 import { defaultStats } from '../engine/stats';
+import { defaultM3Game, defaultM3Stats } from '../games/match3/stats';
+import type { Board as Match3Board } from '../games/match3/logic';
 
 const entry = (i: number): HistoryEntry => ({
   id: `cpn-${i}`,
@@ -72,5 +74,21 @@ describe('repository round-trip', () => {
     expect(await repo.loadStats()).toBeNull();
     expect(await repo.loadHistory()).toBeNull();
     expect(await repo.getVersion()).toBe('3'); // версию resetState НЕ трогает
+  });
+
+  it('match3: board/stats round-trip и чистятся в resetState (Фаза B)', async () => {
+    const repo = createRepository(memoryBackend());
+    const board: Match3Board = [[{ type: 0 }, { type: 1, special: 'line' }]];
+    await repo.saveMatch3Board({ board, game: { ...defaultM3Game(), sessionScore: 777 } });
+    await repo.saveMatch3Stats({ ...defaultM3Stats(), totalScore: 555, gamesPlayed: 3 });
+
+    const loadedBoard = await repo.loadMatch3Board();
+    expect(loadedBoard?.board).toEqual(board);
+    expect(loadedBoard?.game.sessionScore).toBe(777);
+    expect((await repo.loadMatch3Stats())?.totalScore).toBe(555);
+
+    await repo.resetState();
+    expect(await repo.loadMatch3Board()).toBeNull();
+    expect(await repo.loadMatch3Stats()).toBeNull();
   });
 });
