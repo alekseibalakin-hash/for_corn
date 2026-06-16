@@ -1,11 +1,34 @@
 import { achievements as defaultAchievements, maxChallengeCouponsPerDay as defaultCap } from '../content';
-import type { Achievement } from '../content/types';
+import { isAllOf, isAnyOf, isCondition, type Achievement, type Trigger } from '../content/types';
 import { contentRewardSource, createCoupon, isExpired, selectReward, type RewardSource, type Rng } from './coupons';
 import { evalTrigger } from './trigger';
 import { DAY_MS, type Coupon, type Grant, type Progress, type SkippedAchievement, type StatSnapshot } from './types';
 
+/**
+ * Per-game статы — сбрасываются с новой партией и восстанавливаются «как есть» при резюме
+ * (CurrentGameStats). Для заданий с таким триггером выдача — по ПЕРЕСЕЧЕНИЮ порога ходом
+ * (edge), а не по факту «уже ≥ порога» (level): иначе резюм партии с уже высокой плиткой
+ * выдаёт веху на первом же свайпе. Кумулятивные/глобальные статы (totalScore/gamesPlayed/
+ * dailyStreak/rewardsRedeemed) остаются level — они меняются ВНЕ хода (напр. стрик), и edge
+ * их бы сломал (перехода в пределах одного хода у них нет).
+ */
+const PER_GAME_STATS = new Set(['maxTileThisGame', 'sessionScore', 'movesThisGame', 'timeToCurrentMaxTileSec']);
+
+function triggerUsesPerGameStat(trigger: Trigger): boolean {
+  if (isCondition(trigger)) return PER_GAME_STATS.has(trigger.stat);
+  if (isAllOf(trigger)) return trigger.allOf.some(triggerUsesPerGameStat);
+  if (isAnyOf(trigger)) return trigger.anyOf.some(triggerUsesPerGameStat);
+  return false;
+}
+
 export interface EvaluateParams {
   snapshot: StatSnapshot;
+  /**
+   * Снапшот ДО хода (опционально). Для заданий с per-game триггером купон выдаём только при
+   * ПЕРЕСЕЧЕНИИ порога этим ходом: если триггер уже выполнялся на prevSnapshot — пропускаем
+   * (резюм партии не должен ретро-выдавать веху на первом свайпе). Не передан — поведение level.
+   */
+  prevSnapshot?: StatSnapshot;
   progress: Progress;
   /** Активные купоны — для «pending» (живой купон → не дублируем) и разнообразия наград. */
   wallet: Coupon[];
@@ -13,6 +36,11 @@ export interface EvaluateParams {
   now: number;
   /** Локальная дата YYYY-MM-DD «сегодня» — для дневного потолка/сброса в полночь. */
   today: string;
+  /**
+   * Активная игра хаба (DESIGN-HUB §3). Берём ачивки, где `(a.game ?? '2048') === gameId`
+   * ИЛИ `a.game === 'any'`. По умолчанию '2048' — untagged конфиг и старые вызовы целы.
+   */
+  gameId?: string;
   rng?: Rng;
   achievementsList?: Achievement[];
   maxChallengeCouponsPerDay?: number;
@@ -29,6 +57,8 @@ export interface EvaluateResult {
  * Прогон всех ачивок по snapshot. ЕДИНЫЙ жизненный цикл заданий (DESIGN §15):
  *  - задание не выдаётся, если оно `completed` (купон уже использован) — навсегда;
  *  - задание не выдаётся, если в кошельке уже есть его ЖИВОЙ купон (pending);
+ *  - per-game вехи (maxTileThisGame/sessionScore/...) выдаются только при ПЕРЕСЕЧЕНИИ порога
+ *    этим ходом (см. prevSnapshot) — резюм партии не ретро-выдаёт их на первом свайпе;
  *  - иначе при выполнении триггера выдаём купон (и milestone, и challenge);
  *  - challenge дополнительно ограничен cooldownDays и дневным потолком купонов
  *    (maxChallengeCouponsPerDay, счётчик в progress, сброс в локальную полночь).
@@ -38,10 +68,12 @@ export interface EvaluateResult {
  */
 export function evaluateAchievements({
   snapshot,
+  prevSnapshot,
   progress,
   wallet,
   now,
   today,
+  gameId = '2048',
   rng = Math.random,
   achievementsList = defaultAchievements,
   maxChallengeCouponsPerDay = defaultCap,
@@ -61,9 +93,22 @@ export function evaluateAchievements({
   const grants: Grant[] = [];
   const skipped: SkippedAchievement[] = [];
 
-  for (const achievement of achievementsList) {
+  // Фильтр по игре (DESIGN-HUB §3): только задания активной игры (+ кросс-игровые 'any').
+  const forThisGame = achievementsList.filter((a) => (a.game ?? '2048') === gameId || a.game === 'any');
+
+  for (const achievement of forThisGame) {
     if (!evalTrigger(achievement.trigger, snapshot)) {
       skipped.push({ id: achievement.id, reason: 'notTriggered' });
+      continue;
+    }
+    // Edge-triggering per-game вех: порог должен быть пересечён ИМЕННО этим ходом. Если он
+    // уже выполнялся ДО хода (напр. резюм партии с высокой плиткой) — не ретро-выдаём купон.
+    if (
+      prevSnapshot &&
+      triggerUsesPerGameStat(achievement.trigger) &&
+      evalTrigger(achievement.trigger, prevSnapshot)
+    ) {
+      skipped.push({ id: achievement.id, reason: 'alreadyCrossed' });
       continue;
     }
     if (completed.has(achievement.id)) {

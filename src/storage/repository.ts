@@ -89,6 +89,9 @@ export function createRepository(store: KVStore): GameRepository {
         store.removeItem(STORAGE_KEYS.wallet),
         store.removeItem(STORAGE_KEYS.history),
         store.removeItem(STORAGE_KEYS.progress),
+        // Зарезервированные ключи match3: чистим тоже, чтобы ?reset=1 был полным (фаза B).
+        store.removeItem(STORAGE_KEYS.match3Board),
+        store.removeItem(STORAGE_KEYS.match3Stats),
       ]);
     },
   };

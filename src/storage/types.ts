@@ -5,14 +5,22 @@ export interface KVStore {
   removeItem(key: string): Promise<void>;
 }
 
-/** Ключи персистентности (DESIGN §7). Несколько ключей, а не один мега-объект. */
+/**
+ * Ключи персистентности (DESIGN §7). Несколько ключей, а не один мега-объект.
+ *
+ * ХАБ (DESIGN-HUB §4): ОБЩИЕ ключи наградного слоя — `wallet`/`history`/`progress`
+ * (данные жены, не трогаем). 2048 остаётся на `board`/`stats`. Под будущий match3
+ * заведены неймспейс-ключи `match3.*` — в фазе A объявлены, но НЕ используются.
+ */
 export const STORAGE_KEYS = {
-  board: 'board', // текущая партия для resume
-  stats: 'stats', // cumulative-показатели
-  wallet: 'wallet', // активные купоны
-  history: 'history', // использованные + сгоревшие
-  progress: 'progress', // unlocked, cooldowns, дневной счётчик
+  board: 'board', // текущая партия 2048 для resume
+  stats: 'stats', // cumulative-показатели 2048
+  wallet: 'wallet', // ОБЩИЙ: активные купоны
+  history: 'history', // ОБЩИЙ: использованные + сгоревшие
+  progress: 'progress', // ОБЩИЙ: completed, cooldowns, дневной счётчик + хаб-глобальные статы
   version: 'schemaVersion', // версия данных — для разового сброса (см. STORAGE_VERSION)
+  match3Board: 'match3.board', // ФАЗА B: партия match3 (зарезервировано, не используется)
+  match3Stats: 'match3.stats', // ФАЗА B: статы match3 с префиксом m3_ (зарезервировано)
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

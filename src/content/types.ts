@@ -52,6 +52,12 @@ export interface Achievement {
   type: AchievementType;
   title: string;
   description: string;
+  /**
+   * К какой игре относится задание (ХАБ, DESIGN-HUB §3). Необязательное:
+   * untagged трактуется движком как '2048' (нулевой churn к 25 существующим ачивкам).
+   * `'any'` — кросс-игровое задание (засчитывается в любой игре). Будущий match3 → `'m3'`.
+   */
+  game?: string;
   trigger: Trigger;
   /** Случайный купон из тира (основной путь). */
   rewardTier?: Tier;

@@ -42,6 +42,8 @@ const challenge = (id: string, cooldownDays = 1, rewardTier: Tier = 'small'): Ac
   cooldownDays,
 });
 
+const tagged = (id: string, game: string): Achievement => ({ ...milestone(id), game });
+
 const coupon = (achievementId: string, rewardId: string, expiresAt: number): Coupon => ({
   id: `cpn-${achievementId}`,
   rewardId,
@@ -194,6 +196,31 @@ describe('награда: note, фикс и разнообразие', () => {
   });
 });
 
+describe('фильтр по game (ХАБ, DESIGN-HUB §3)', () => {
+  it('по умолчанию gameId=2048: untagged ачивка трактуется как 2048 и выдаётся', () => {
+    const res = run([milestone('m')], defaultProgress(TODAY));
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['m']);
+  });
+
+  it('ачивка другой игры (game:m3) НЕ попадает в прогон 2048 (даже не «skipped»)', () => {
+    const res = run([tagged('only-m3', 'm3')], defaultProgress(TODAY)); // gameId по умолчанию '2048'
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toHaveLength(0); // отфильтрована до цикла, а не пропущена как notTriggered
+  });
+
+  it('в своей игре (gameId=m3) выдаётся её ачивка, а 2048-ачивки отсеяны', () => {
+    const list = [milestone('mile-2048'), tagged('only-m3', 'm3')];
+    const res = run(list, defaultProgress(TODAY), { gameId: 'm3' });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['only-m3']);
+  });
+
+  it("game:'any' засчитывается в любой игре хаба", () => {
+    const list = [tagged('cross', 'any')];
+    expect(run(list, defaultProgress(TODAY), { gameId: '2048' }).grants.map((g) => g.achievement.id)).toEqual(['cross']);
+    expect(run(list, defaultProgress(TODAY), { gameId: 'm3' }).grants.map((g) => g.achievement.id)).toEqual(['cross']);
+  });
+});
+
 describe('реальный контент', () => {
   const snapshotWithTile = (maxTile: number): StatSnapshot => ({
     gamesPlayed: 1,
@@ -221,5 +248,50 @@ describe('реальный контент', () => {
     const res = evaluateAchievements({ snapshot: snapshotWithTile(32), progress: defaultProgress(TODAY), wallet: [], now: NOW, today: TODAY, rng: () => 0.5 });
     const ids = res.grants.map((g) => g.achievement.id);
     expect(ids).not.toContain('welcome');
+  });
+});
+
+describe('edge-triggering per-game вех (фикс «награда на первом ходу резюма»)', () => {
+  const mile64: Achievement = { ...milestone('reach64'), trigger: { stat: 'maxTileThisGame', op: '>=', value: 64 } };
+  const snap = (maxTile: number): StatSnapshot => ({ maxTileThisGame: maxTile });
+
+  it('РЕЗЮМ: порог уже был пройден ДО хода → НЕ выдаётся (alreadyCrossed)', () => {
+    const res = run([mile64], defaultProgress(TODAY), { snapshot: snap(64), prevSnapshot: snap(64) });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'reach64', reason: 'alreadyCrossed' });
+  });
+
+  it('ПЕРЕСЕЧЕНИЕ ходом: было <64, стало ≥64 → выдаётся', () => {
+    const res = run([mile64], defaultProgress(TODAY), { snapshot: snap(64), prevSnapshot: snap(32) });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['reach64']);
+  });
+
+  it('без prevSnapshot — поведение как раньше (level): при ≥ выдаётся', () => {
+    const res = run([mile64], defaultProgress(TODAY), { snapshot: snap(64) });
+    expect(res.grants).toHaveLength(1);
+  });
+
+  it('глобальный триггер (dailyStreak) НЕ edge-гейтится: prev уже ≥ → всё равно выдаётся', () => {
+    const streak3: Achievement = { ...milestone('streak3'), trigger: { stat: 'dailyStreak', op: '>=', value: 3 } };
+    const res = run([streak3], defaultProgress(TODAY), { snapshot: { dailyStreak: 3 }, prevSnapshot: { dailyStreak: 3 } });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['streak3']);
+  });
+
+  it('составной (allOf) per-game триггер: уже выполнен до хода → не выдаётся', () => {
+    const fast: Achievement = {
+      ...challenge('fast'),
+      trigger: {
+        allOf: [
+          { stat: 'maxTileThisGame', op: '>=', value: 256 },
+          { stat: 'timeToCurrentMaxTileSec', op: '<=', value: 120 },
+        ],
+      },
+    };
+    const res = run([fast], defaultProgress(TODAY), {
+      snapshot: { maxTileThisGame: 256, timeToCurrentMaxTileSec: 100 },
+      prevSnapshot: { maxTileThisGame: 256, timeToCurrentMaxTileSec: 100 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'fast', reason: 'alreadyCrossed' });
   });
 });
