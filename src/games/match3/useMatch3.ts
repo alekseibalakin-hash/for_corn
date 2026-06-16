@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRewards } from '../../rewards';
 import { haptics } from '../../telegram';
+import { celebrate } from '../../ui/confetti';
 import {
   activateInPlace,
   applySwap,
   createBoard,
+  findAnyMove,
   hasAnyMove,
   isValidSwap,
   reshuffle,
@@ -39,6 +41,11 @@ const CLEAR_MS = 140;
 const SETTLE_MS = 220;
 const REVERT_MS = 160;
 
+// Релакс-подсказка: после стольких мс простоя подсветить одну валидную пару (без давления).
+const HINT_IDLE_MS = 5000;
+// Праздник: если за ОДИН шаг хода убрано столько фишек — конфетти + вспышка поля (не на каждом ходу).
+const BIG_CLEAR = 20;
+
 /** Активный визуальный эффект хода (для подсветки/взрывов в Match3.tsx). */
 export interface M3Fx {
   cleared: Coord[];
@@ -65,6 +72,10 @@ export function useMatch3() {
   const [busy, setBusyState] = useState(false); // идёт анимация хода — вход заблокирован
   const [fx, setFx] = useState<M3Fx | null>(null);
   const [confirmNewGame, setConfirmNewGame] = useState(false);
+  // Релакс-подсказка: пара клеток для мягкой подсветки (или null). Только при простое и !busy.
+  const [hint, setHintState] = useState<[Coord, Coord] | null>(null);
+  // Счётчик «праздников»: каждый крупный клир ++ — UI проигрывает вспышку поля по смене значения.
+  const [flash, setFlash] = useState(0);
 
   // Зеркала для синхронного чтения в обработчиках (как в useGame2048).
   const boardRef = useRef(board);
@@ -72,13 +83,16 @@ export function useMatch3() {
   const gameRef = useRef(game);
   const statsRef = useRef(stats);
   const busyRef = useRef(busy);
+  const hintRef = useRef(hint);
   const aliveRef = useRef(true);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setBoard = (v: Board) => ((boardRef.current = v), setBoardState(v));
   const setGems = (v: VisualGem[]) => ((gemsRef.current = v), setGemsState(v));
   const setGame = (v: M3CurrentGame) => ((gameRef.current = v), setGameState(v));
   const setStats = (v: M3CumulativeStats) => ((statsRef.current = v), setStatsState(v));
   const setBusy = (v: boolean) => ((busyRef.current = v), setBusyState(v));
+  const setHint = (v: [Coord, Coord] | null) => ((hintRef.current = v), setHintState(v));
 
   const after = useCallback((ms: number, fn: () => void) => {
     const id = setTimeout(() => {
@@ -88,6 +102,31 @@ export function useMatch3() {
     }, ms);
     timersRef.current.push(id);
   }, []);
+
+  // ---- Релакс-подсказка при простое. Таймер живёт ОТДЕЛЬНО от anim-таймеров (after): его
+  // перезапускает любое действие игрока (notifyActivity) и завершение хода. Через ~5с простоя —
+  // мягко подсветить одну валидную пару. Никакого видимого таймера/давления. ----
+  const clearIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+  }, []);
+  const scheduleHint = useCallback(() => {
+    clearIdleTimer();
+    idleTimerRef.current = setTimeout(() => {
+      idleTimerRef.current = null;
+      if (!aliveRef.current || busyRef.current) return;
+      const move = findAnyMove(boardRef.current);
+      if (move) setHint(move);
+    }, HINT_IDLE_MS);
+  }, [clearIdleTimer]);
+  /** Любое действие игрока: гасим текущую подсказку и (если поле свободно) перезапускаем таймер. */
+  const notifyActivity = useCallback(() => {
+    if (hintRef.current) setHint(null);
+    if (busyRef.current) clearIdleTimer();
+    else scheduleHint();
+  }, [clearIdleTimer, scheduleHint]);
 
   const persistBoard = useCallback(() => {
     void repo
@@ -126,6 +165,7 @@ export function useMatch3() {
         setLoading(false);
         persistBoard();
         persistStats();
+        scheduleHint();
       } catch (err) {
         if (cancelled) return;
         console.warn('[m3] загрузка партии не удалась, старт с чистого листа:', err);
@@ -135,6 +175,7 @@ export function useMatch3() {
         setBoard(fresh);
         setGems(boardToGems(fresh));
         setLoading(false);
+        scheduleHint();
       }
     })();
     return () => {
@@ -142,6 +183,7 @@ export function useMatch3() {
       aliveRef.current = false;
       timersRef.current.forEach(clearTimeout);
       timersRef.current = [];
+      clearIdleTimer();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo]);
@@ -153,6 +195,7 @@ export function useMatch3() {
       finalBoard: Board,
       agg: { scoreGained: number; gemsCleared: number; maxCascade: number; biggestClear: number },
       prevSnapshot: ReturnType<typeof buildM3Snapshot>,
+      isCombo: boolean,
     ) => {
       const prevGame = gameRef.current;
       const nextGame: M3CurrentGame = {
@@ -162,6 +205,11 @@ export function useMatch3() {
         biggestClear: Math.max(prevGame.biggestClear, agg.biggestClear),
         gemsThisGame: prevGame.gemsThisGame + agg.gemsCleared,
       };
+
+      // Кумулятивный m3_combos (level): +1, если ход был комбо двух спецфишек (своп двух спецов).
+      // Инкрементим прямо в cumulative stats (НЕ per-game) — снапшот ниже его и подхватит.
+      const nextStats = isCombo ? { ...statsRef.current, combos: statsRef.current.combos + 1 } : statsRef.current;
+      if (isCombo) setStats(nextStats);
 
       // Расслабленный endless: проигрыша нет, но если ходов не осталось — переразложить.
       // Без reshuffle gems уже совпадают с finalBoard (последний applyStep в playResolve) —
@@ -179,16 +227,18 @@ export function useMatch3() {
 
       // prevSnapshot — ДО хода: per-game вехи выдаются только при пересечении порога этим ходом
       // (резюм партии с высоким счётом не уронит купон на первом свопе — edge в achievements.ts).
-      rewards.grant(GAME_ID, buildM3Snapshot(statsRef.current, nextGame), prevSnapshot);
+      rewards.grant(GAME_ID, buildM3Snapshot(nextStats, nextGame), prevSnapshot);
       persistBoard();
+      if (isCombo) persistStats();
+      scheduleHint(); // поле успокоилось — снова считаем простой для подсказки
     },
-    [rewards, persistBoard],
+    [rewards, persistBoard, persistStats, scheduleHint],
   );
 
   // ---- Проигрыш разрешённого хода по шагам каскада: взрыв (FX) → оседание → следующий шаг →
   // finishMove. Общий путь для свопа и тап-детонации спеца (форма ResolveResult одинакова). ----
   const playResolve = useCallback(
-    (res: ResolveResult, prevSnapshot: ReturnType<typeof buildM3Snapshot>) => {
+    (res: ResolveResult, prevSnapshot: ReturnType<typeof buildM3Snapshot>, isCombo: boolean) => {
       const agg = {
         scoreGained: res.scoreGained,
         gemsCleared: res.gemsCleared,
@@ -196,14 +246,23 @@ export function useMatch3() {
         biggestClear: res.biggestClear,
       };
       const steps: CascadeStep[] = res.steps;
+      let celebrated = false; // один праздник на ход, даже если крупных шагов несколько
       const playStep = (i: number) => {
         if (i >= steps.length) {
-          finishMove(res.board, agg, prevSnapshot);
+          finishMove(res.board, agg, prevSnapshot, isCombo);
           return;
         }
         const st = steps[i];
         setFx({ cleared: st.cleared, detonated: st.detonated });
         if (st.detonated.length) haptics.impact('heavy');
+        // Праздник на крупном клире (≥20 фишек за шаг): конфетти + вспышка поля — в момент взрыва,
+        // а не в конце хода. Только один раз за ход (не на каждом шаге каскада).
+        if (!celebrated && st.clearedCount >= BIG_CLEAR) {
+          celebrated = true;
+          celebrate();
+          setFlash((f) => f + 1);
+          haptics.notify('success');
+        }
         after(CLEAR_MS, () => {
           // board (plain) — для logic/тача; gems (id) — настоящее падение: очищенные уходят
           // (exit), выжившие слайдятся, рефилл влетает сверху. applyStep синхронен с logic.
@@ -222,6 +281,8 @@ export function useMatch3() {
   const swap = useCallback(
     (a: Coord, b: Coord) => {
       if (loading || busyRef.current) return;
+      setHint(null); // действие игрока гасит подсказку
+      clearIdleTimer();
       const cur = boardRef.current;
       if (!isValidSwap(cur, a, b)) {
         // Откат: фишки слайдятся местами и возвращаются назад (как в матч-3 без совпадения).
@@ -234,21 +295,24 @@ export function useMatch3() {
           setBoard(original);
           setGems(swapGems(gemsRef.current, a, b)); // слайд обратно
           setBusy(false);
+          scheduleHint();
         });
         return;
       }
 
       setBusy(true);
       const prevSnapshot = buildM3Snapshot(statsRef.current, gameRef.current);
+      // Комбо двух спецфишек (своп двух спецов) → кумулятивный m3_combos +1 (см. finishMove).
+      const isCombo = !!(cur[a.r]?.[a.c]?.special && cur[b.r]?.[b.c]?.special);
       const res = resolveSwap(cur, a, b, rng);
 
       // Слайд свопа (gems по id), затем каскады по шагам (искры → падение).
       setBoard(applySwap(cur, a, b));
       setGems(swapGems(gemsRef.current, a, b));
       haptics.impact('medium');
-      playResolve(res, prevSnapshot);
+      playResolve(res, prevSnapshot, isCombo);
     },
-    [loading, after, playResolve],
+    [loading, after, playResolve, clearIdleTimer, scheduleHint],
   );
 
   // ---- Тап-детонация спеца «на месте» (Candy Crush): без свопа поле сразу детонирует спец в
@@ -260,15 +324,18 @@ export function useMatch3() {
       const gem = cur[cell.r]?.[cell.c];
       if (!gem?.special) return; // защита: детонировать можно только спец
 
+      setHint(null); // действие игрока гасит подсказку
+      clearIdleTimer();
       setBusy(true);
       const prevSnapshot = buildM3Snapshot(statsRef.current, gameRef.current);
       const res = activateInPlace(cur, cell, rng);
 
+      // Тап-детонация одного спеца — это НЕ комбо двух спецов (isCombo=false).
       // Свопа нет — поле не трогаем до первого шага; FX/оседание проигрывает playResolve.
       haptics.impact('medium');
-      playResolve(res, prevSnapshot);
+      playResolve(res, prevSnapshot, false);
     },
-    [loading, playResolve],
+    [loading, playResolve, clearIdleTimer],
   );
 
   // ---- Свайп: своп фишки `from` к соседу в направлении dir (для тач-управления). ----
@@ -288,6 +355,7 @@ export function useMatch3() {
   const startNewGame = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
+    clearIdleTimer();
     let nextStats = commitM3Game(statsRef.current, gameRef.current);
     nextStats = { ...nextStats, gamesPlayed: nextStats.gamesPlayed + 1 };
 
@@ -297,6 +365,7 @@ export function useMatch3() {
     setBoard(fresh);
     setGems(boardToGems(fresh));
     setFx(null);
+    setHint(null);
     setBusy(false);
     setConfirmNewGame(false);
 
@@ -305,15 +374,28 @@ export function useMatch3() {
 
     persistBoard();
     persistStats();
-  }, [rewards, persistBoard, persistStats]);
+    scheduleHint();
+  }, [rewards, persistBoard, persistStats, clearIdleTimer, scheduleHint]);
 
   const requestNewGame = useCallback(() => {
     // Не начинать новую игру, пока анимируется ход: иначе in-flight ход (счёт/комбо/награды)
     // потеряется, а поле сменится посреди анимации. У 2048 такого нет — там ход синхронный.
     if (busyRef.current) return;
-    if (gameRef.current.moves > 0) setConfirmNewGame(true);
-    else startNewGame();
-  }, [startNewGame]);
+    if (gameRef.current.moves > 0) {
+      // Гасим подсказку и таймер: иначе пульс мигал бы на поле ПОД диалогом подтверждения.
+      setHint(null);
+      clearIdleTimer();
+      setConfirmNewGame(true);
+    } else {
+      startNewGame();
+    }
+  }, [startNewGame, clearIdleTimer]);
+
+  // Отмена диалога — возвращаемся к партии: снова считаем простой для подсказки.
+  const cancelNewGame = useCallback(() => {
+    setConfirmNewGame(false);
+    scheduleHint();
+  }, [scheduleHint]);
 
   return {
     loading,
@@ -321,6 +403,8 @@ export function useMatch3() {
     gems,
     fx,
     busy,
+    hint,
+    flash,
     score: game.sessionScore,
     bestScore: Math.max(stats.bestScore, game.sessionScore),
     combo: game.maxCombo,
@@ -328,9 +412,10 @@ export function useMatch3() {
     swap,
     swapDir,
     activateAt,
+    notifyActivity,
     requestNewGame,
     startNewGame,
-    cancelNewGame: () => setConfirmNewGame(false),
+    cancelNewGame,
   };
 }
 

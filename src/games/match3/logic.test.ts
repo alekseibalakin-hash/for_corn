@@ -5,8 +5,10 @@ import {
   applySwap,
   cloneBoard,
   createBoard,
+  findAnyMove,
   findMatches,
   hasAnyMove,
+  isAdjacent,
   isValidSwap,
   mulberry32,
   refill,
@@ -315,6 +317,66 @@ describe('базовые комбо двух спецфишек', () => {
   });
 });
 
+describe('полный набор комбо двух спецфишек (Match-3 v2)', () => {
+  it('line + bomb → «толстый крест» (3 ряда + 3 столбца = 39 клеток)', () => {
+    const b = canvas();
+    // тип E=4 не на холсте → своп не даёт побочного совпадения; центр креста — на ЛИНИИ.
+    put(b, 4, 4, E, 'line');
+    put(b, 4, 5, E, 'bomb');
+    const res = resolveSwap(b, { r: 4, c: 4 }, { r: 4, c: 5 }, mulberry32(1));
+    // После свопа линия в (4,5): ряды 3-5 (×8) + столбцы 4-6 (×8) − пересечение 3×3 = 39.
+    expect(res.steps[0].clearedCount).toBe(39);
+    expect(res.steps[0].detonated.some((d) => d.special === 'line')).toBe(true);
+    expect(res.steps[0].detonated.some((d) => d.special === 'bomb')).toBe(true);
+  });
+
+  it('colorBomb + line → весь тип партнёра «становится» линиями и детонирует (ряды+столбцы)', () => {
+    const b = canvas();
+    put(b, 1, 1, 5, 'colorBomb'); // тип цветобомбы (5) не важен — берёт цвет партнёра
+    put(b, 1, 2, E, 'line'); // партнёр — линия типа E=4
+    put(b, 6, 6, E); // ещё одна фишка типа E (изолирована — без готового совпадения)
+    const res = resolveSwap(b, { r: 1, c: 1 }, { r: 1, c: 2 }, mulberry32(1));
+    // После свопа: линия типа 4 в (1,1), цветобомба в (1,2); фишки типа 4 — (1,1) и (6,6).
+    // Очистка = (ряд1∪столбец1) ∪ (ряд6∪столбец6) ∪ цветобомба(1,2) = 28 клеток.
+    expect(res.steps[0].clearedCount).toBe(28);
+    expect(res.steps[0].detonated.some((d) => d.special === 'colorBomb')).toBe(true);
+    expect(res.steps[0].detonated.some((d) => d.special === 'line')).toBe(true);
+    // дальние от обеих «линий» клетки на этом шаге целы:
+    expect(res.steps[0].cleared.some((c) => c.r === 0 && c.c === 0)).toBe(false);
+    expect(res.steps[0].cleared.some((c) => c.r === 7 && c.c === 7)).toBe(false);
+  });
+
+  it('colorBomb + bomb → весь тип партнёра «становится» бомбами и детонирует (3×3 у каждой)', () => {
+    const b = canvas();
+    put(b, 1, 1, 5, 'colorBomb');
+    put(b, 1, 2, E, 'bomb'); // партнёр — бомба типа E=4
+    put(b, 5, 5, E); // ещё одна фишка типа E (изолирована)
+    const res = resolveSwap(b, { r: 1, c: 1 }, { r: 1, c: 2 }, mulberry32(1));
+    // После свопа: бомба типа 4 в (1,1), цветобомба в (1,2); фишки типа 4 — (1,1) и (5,5).
+    // 3×3 вокруг (1,1) = ряды0-2×столбцы0-2 (9) + 3×3 вокруг (5,5) = ряды4-6×столбцы4-6 (9) = 18.
+    expect(res.steps[0].clearedCount).toBe(18);
+    expect(res.steps[0].detonated.some((d) => d.special === 'colorBomb')).toBe(true);
+    expect(res.steps[0].detonated.some((d) => d.special === 'bomb')).toBe(true);
+  });
+
+  it('существующие базовые комбо целы: cb+cb=64, bomb+bomb=25, line+line=22', () => {
+    const cb = canvas();
+    put(cb, 4, 4, A, 'colorBomb');
+    put(cb, 4, 5, A, 'colorBomb');
+    expect(resolveSwap(cb, { r: 4, c: 4 }, { r: 4, c: 5 }, mulberry32(1)).steps[0].clearedCount).toBe(SIZE * SIZE);
+
+    const bb = canvas();
+    put(bb, 4, 4, A, 'bomb');
+    put(bb, 4, 5, A, 'bomb');
+    expect(resolveSwap(bb, { r: 4, c: 4 }, { r: 4, c: 5 }, mulberry32(1)).steps[0].clearedCount).toBe(25);
+
+    const ll = canvas();
+    put(ll, 4, 3, E, 'line');
+    put(ll, 4, 4, E, 'line');
+    expect(resolveSwap(ll, { r: 4, c: 3 }, { r: 4, c: 4 }, mulberry32(1)).steps[0].clearedCount).toBe(22);
+  });
+});
+
 describe('activateInPlace — тап-детонация спеца (без свопа)', () => {
   it('line: тап сносит весь ряд И столбец (15 клеток), поле не свопалось', () => {
     const b = canvas();
@@ -434,8 +496,22 @@ describe('isValidSwap', () => {
   });
 });
 
-describe('hasAnyMove / reshuffle', () => {
+describe('hasAnyMove / findAnyMove / reshuffle', () => {
   it('мёртвое поле: ходов нет', () => {
+    expect(hasAnyMove(deadBoard())).toBe(false);
+  });
+
+  it('findAnyMove: на живом поле — валидная соседняя пара (для подсказки UI)', () => {
+    const b = createBoard(mulberry32(1));
+    const move = findAnyMove(b);
+    expect(move).not.toBeNull();
+    const [p, q] = move!;
+    expect(isAdjacent(p, q)).toBe(true);
+    expect(isValidSwap(b, p, q)).toBe(true);
+  });
+
+  it('findAnyMove: на мёртвом поле — null (согласован с hasAnyMove)', () => {
+    expect(findAnyMove(deadBoard())).toBeNull();
     expect(hasAnyMove(deadBoard())).toBe(false);
   });
 

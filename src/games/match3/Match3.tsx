@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useAnimationControls } from 'framer-motion';
 import { ArrowLeft, Gift, RotateCcw, Trophy } from 'lucide-react';
 import { useRewards } from '../../rewards';
 import { ConfirmDialog } from '../../ui/components/ConfirmDialog';
@@ -107,11 +107,20 @@ export default function Match3({ onBack, onOpenWallet }: Match3Props) {
   const mouseStart = useRef<{ x: number; y: number; cell: Coord } | null>(null);
   const suppressClick = useRef(false);
   const [selected, setSelected] = useState<Coord | null>(null);
+  const boardControls = useAnimationControls();
 
   // Сброс выбора, когда идёт анимация хода (или партия сменилась).
   useEffect(() => {
     if (m3.busy) setSelected(null);
   }, [m3.busy]);
+
+  // «Бумц» поля на крупном клире (≥20 фишек за шаг): короткий scale-пульс (transform-only),
+  // запускается по смене счётчика m3.flash. Вспышка-белая — отдельным keyed-оверлеем ниже.
+  useEffect(() => {
+    if (m3.flash > 0) {
+      void boardControls.start({ scale: [1, 1.04, 1], transition: { duration: 0.45, ease: 'easeOut' } });
+    }
+  }, [m3.flash, boardControls]);
 
   // Координаты ячейки из точки экрана (по rect слоя фишек).
   const cellFromPoint = (clientX: number, clientY: number): Coord | null => {
@@ -130,6 +139,7 @@ export default function Match3({ onBack, onOpenWallet }: Match3Props) {
     const el = gridRef.current;
     if (!el) return;
     const onStart = (e: TouchEvent) => {
+      m3.notifyActivity(); // любой контакт — сбрасываем подсказку и таймер простоя
       if (e.touches.length > 1) {
         touchStart.current = null;
         return;
@@ -204,6 +214,7 @@ export default function Match3({ onBack, onOpenWallet }: Match3Props) {
 
   // Мышь (десктоп): drag-свайп; короткий клик → тап-выбор (через onClick ячейки).
   const onMouseDown = (e: React.MouseEvent) => {
+    m3.notifyActivity(); // любое действие мышью — сбрасываем подсказку и таймер простоя
     // Сбрасываем флаг в начале каждого взаимодействия: drag, завершившийся click'ом по общему
     // предку (а не по кнопке-ячейке), мог не сбросить его → следующий тап «проглотился» бы.
     suppressClick.current = false;
@@ -291,8 +302,12 @@ export default function Match3({ onBack, onOpenWallet }: Match3Props) {
         </button>
       </div>
 
-      {/* Поле 8×8 — двухслойный рендер (как Board.tsx 2048): статичная подложка + падающие гемы. */}
-      <div className="no-touch-pan relative mt-1 aspect-square w-full rounded-card bg-board p-2 shadow-soft">
+      {/* Поле 8×8 — двухслойный рендер (как Board.tsx 2048): статичная подложка + падающие гемы.
+          motion.div + boardControls — «бумц» поля (scale) на крупном клире, transform-only. */}
+      <motion.div
+        animate={boardControls}
+        className="no-touch-pan relative mt-1 aspect-square w-full rounded-card bg-board p-2 shadow-soft"
+      >
         {/* ПОДЛОЖКА: 64 пустых ячейки («дыры» при падении) + геометрия/ввод (gridRef → cellFromPoint). */}
         <div
           ref={gridRef}
@@ -312,6 +327,23 @@ export default function Match3({ onBack, onOpenWallet }: Match3Props) {
             <GemCell key={g.id} gem={g} selected={!!selected && selected.r === g.r && selected.c === g.c} />
           ))}
         </div>
+
+        {/* ПОДСКАЗКА: при простое мягко пульсируем ОДНУ валидную пару (без давления). Только !busy
+            и не во время диалога «Новая игра» (иначе пульс мигал бы под модалкой). */}
+        {!m3.busy && !m3.confirmNewGame && m3.hint && (
+          <div className="pointer-events-none absolute inset-2 grid grid-cols-8 grid-rows-8 gap-1">
+            {m3.hint.map((cell, i) => (
+              <motion.div
+                key={`hint-${i}`}
+                style={{ gridColumnStart: cell.c + 1, gridRowStart: cell.r + 1 }}
+                initial={{ opacity: 0.3 }}
+                animate={{ opacity: [0.3, 0.75, 0.3], scale: [1, 1.06, 1] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+                className="rounded-tile ring-2 ring-primary/70"
+              />
+            ))}
+          </div>
+        )}
 
         {/* FX-слой: искры/💥 ПОВЕРХ настоящего падения (не подмена движения). */}
         <div className="pointer-events-none absolute inset-2 grid grid-cols-8 grid-rows-8 gap-1">
@@ -340,7 +372,18 @@ export default function Match3({ onBack, onOpenWallet }: Match3Props) {
             </motion.div>
           ))}
         </div>
-      </div>
+
+        {/* ВСПЫШКА на крупном клире: разовый белый «бумц» (opacity), keyed по m3.flash → ремоунт = реплей. */}
+        {m3.flash > 0 && (
+          <motion.div
+            key={m3.flash}
+            className="pointer-events-none absolute inset-0 rounded-card bg-white"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 0.55, 0] }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+          />
+        )}
+      </motion.div>
 
       <p className="mt-1 text-center text-xs font-semibold text-muted">
         Свайпай фишку к соседу (или тапни две) — собирай тройки и спецфишки ❤️

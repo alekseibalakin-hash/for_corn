@@ -243,6 +243,9 @@
     {"id":"m3-cleared-12000","type":"milestone","game":"m3","title":"Большой урожай","description":"Собери 12000 фишек суммарно","trigger":{"stat":"m3_gemsCleared","op":">=","value":12000},"rewardTier":"medium"},
     {"id":"m3-games-20","type":"milestone","game":"m3","title":"Втянулась в тройки","description":"Сыграй 20 партий в Match-3","trigger":{"stat":"m3_gamesPlayed","op":">=","value":20},"rewardTier":"small"},
     {"id":"m3-games-75","type":"milestone","game":"m3","title":"Мастер троек","description":"Сыграй 75 партий в Match-3","trigger":{"stat":"m3_gamesPlayed","op":">=","value":75},"rewardTier":"large"},
-    {"id":"m3-bigblast","type":"challenge","game":"m3","title":"Большой бабах","description":"Убери 20+ фишек одним ходом","trigger":{"stat":"m3_biggestClear","op":">=","value":20},"rewardTier":"medium","cooldownDays":1}
+    {"id":"m3-bigblast","type":"challenge","game":"m3","title":"Большой бабах","description":"Убери 20+ фишек одним ходом","trigger":{"stat":"m3_biggestClear","op":">=","value":20},"rewardTier":"medium","cooldownDays":1},
+    {"id":"m3-combo-master","type":"milestone","game":"m3","title":"Комбо-мастер 🎆","description":"Сделай 10 спец-комбо","trigger":{"stat":"m3_combos","op":">=","value":10},"rewardTier":"medium"},
+    {"id":"m3-combo-legend","type":"milestone","game":"m3","title":"Повелитель комбо","description":"Сделай 50 спец-комбо","trigger":{"stat":"m3_combos","op":">=","value":50},"rewardTier":"large"},
+    {"id":"m3-megaclear","type":"challenge","game":"m3","title":"Мегаклир","description":"Убери 30+ фишек одним ходом","trigger":{"stat":"m3_biggestClear","op":">=","value":30},"rewardTier":"large","cooldownDays":2}
   ]
 }

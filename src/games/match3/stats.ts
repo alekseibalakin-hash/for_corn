@@ -13,6 +13,8 @@ export interface M3CumulativeStats {
   bestScore: number;
   gemsCleared: number;
   gamesPlayed: number;
+  /** Сколько раз сделано спец-комбо (своп двух спецфишек) за всё время — кумулятивный (level). */
+  combos: number;
 }
 
 /** Per-game показатели match3 — сбрасываются с новой партией (восстанавливаются при резюме). */
@@ -38,10 +40,11 @@ export const M3_KEYS = {
   totalScore: `${M3_STAT_PREFIX}totalScore`,
   gemsCleared: `${M3_STAT_PREFIX}gemsCleared`,
   gamesPlayed: `${M3_STAT_PREFIX}gamesPlayed`,
+  combos: `${M3_STAT_PREFIX}combos`,
 } as const;
 
 export function defaultM3Stats(): M3CumulativeStats {
-  return { totalScore: 0, bestScore: 0, gemsCleared: 0, gamesPlayed: 0 };
+  return { totalScore: 0, bestScore: 0, gemsCleared: 0, gamesPlayed: 0, combos: 0 };
 }
 
 export function defaultM3Game(): M3CurrentGame {
@@ -57,6 +60,7 @@ export function normalizeM3Stats(raw: Partial<M3CumulativeStats> | null | undefi
     bestScore: typeof raw.bestScore === 'number' ? raw.bestScore : 0,
     gemsCleared: typeof raw.gemsCleared === 'number' ? raw.gemsCleared : 0,
     gamesPlayed: typeof raw.gamesPlayed === 'number' ? raw.gamesPlayed : 0,
+    combos: typeof raw.combos === 'number' ? raw.combos : 0,
   };
 }
 
@@ -88,6 +92,8 @@ export function buildM3Snapshot(stats: M3CumulativeStats, game: M3CurrentGame): 
     [M3_KEYS.totalScore]: stats.totalScore + game.sessionScore,
     [M3_KEYS.gemsCleared]: stats.gemsCleared + game.gemsThisGame,
     [M3_KEYS.gamesPlayed]: stats.gamesPlayed,
+    // combos — кумулятивный, инкрементится «вживую» в useMatch3 в сами stats (не per-game).
+    [M3_KEYS.combos]: stats.combos,
   };
 }
 

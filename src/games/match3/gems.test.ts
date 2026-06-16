@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyStep, boardToGems, gemsToBoard, swapGems } from './gems';
-import { mulberry32, resolveCascades, resolveSwap, SIZE, type Board, type Cell, type GemType, type Special } from './logic';
+import { mulberry32, resolveCascades, resolveSwap, SIZE, type Board, type Cell, type Coord, type GemType, type Special } from './logic';
 
 // ---- Хелперы (зеркало logic.test.ts) ----
 const D = 3;
@@ -147,5 +147,54 @@ describe('gems — id-отношения (не конкретные числа: 
     expect(made).toBeDefined();
     expect(made!.special).toBeDefined();
     expect(prevIds.has(made!.id)).toBe(false);
+  });
+});
+
+describe('gems — ИНВАРИАНТ на комбо двух спецфишек (Match-3 v2, замок от десинка)', () => {
+  // Каждое комбо разрешаем свопом и проверяем applyStep≡logic на ВСЕХ шагах (вкл. каскады после клира).
+  const combos: { name: string; make: () => Board; a: Coord; bb: Coord }[] = [
+    {
+      name: 'line + bomb (толстый крест)',
+      make: () => { const x = canvas(); put(x, 4, 4, E, 'line'); put(x, 4, 5, E, 'bomb'); return x; },
+      a: { r: 4, c: 4 }, bb: { r: 4, c: 5 },
+    },
+    {
+      name: 'colorBomb + line',
+      make: () => { const x = canvas(); put(x, 1, 1, 5, 'colorBomb'); put(x, 1, 2, E, 'line'); put(x, 6, 6, E); return x; },
+      a: { r: 1, c: 1 }, bb: { r: 1, c: 2 },
+    },
+    {
+      name: 'colorBomb + bomb',
+      make: () => { const x = canvas(); put(x, 1, 1, 5, 'colorBomb'); put(x, 1, 2, E, 'bomb'); put(x, 5, 5, E); return x; },
+      a: { r: 1, c: 1 }, bb: { r: 1, c: 2 },
+    },
+    {
+      name: 'colorBomb + colorBomb (всё поле)',
+      make: () => { const x = canvas(); put(x, 4, 4, 0, 'colorBomb'); put(x, 4, 5, 0, 'colorBomb'); return x; },
+      a: { r: 4, c: 4 }, bb: { r: 4, c: 5 },
+    },
+    {
+      name: 'bomb + bomb (5×5)',
+      make: () => { const x = canvas(); put(x, 4, 4, 0, 'bomb'); put(x, 4, 5, 0, 'bomb'); return x; },
+      a: { r: 4, c: 4 }, bb: { r: 4, c: 5 },
+    },
+    {
+      name: 'line + line (крест)',
+      make: () => { const x = canvas(); put(x, 4, 3, E, 'line'); put(x, 4, 4, E, 'line'); return x; },
+      a: { r: 4, c: 3 }, bb: { r: 4, c: 4 },
+    },
+  ];
+
+  combos.forEach(({ name, make, a, bb }) => {
+    it(`gemsToBoard(applyStep(prev, step)) == step.board на всех шагах: ${name}`, () => {
+      const board = make();
+      const res = resolveSwap(board, a, bb, mulberry32(7));
+      expect(res.steps.length).toBeGreaterThanOrEqual(1);
+      let gems = swapGems(boardToGems(board), a, bb);
+      res.steps.forEach((st) => {
+        gems = applyStep(gems, st);
+        expectSameBoard(gemsToBoard(gems), st.board);
+      });
+    });
   });
 });

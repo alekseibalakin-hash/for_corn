@@ -464,6 +464,19 @@ const square = (at: Coord, radius: number): Coord[] => {
     for (let c = at.c - radius; c <= at.c + radius; c++) if (inBounds(r, c)) out.push({ r, c });
   return out;
 };
+/** «Толстый крест»: 3 ряда (центр±1) + 3 столбца (центр±1) — для комбо line+bomb. */
+const thickCross = (center: Coord): Coord[] => {
+  const out: Coord[] = [];
+  for (let dr = -1; dr <= 1; dr++) {
+    const r = center.r + dr;
+    if (r >= 0 && r < SIZE) for (let c = 0; c < SIZE; c++) out.push({ r, c });
+  }
+  for (let dc = -1; dc <= 1; dc++) {
+    const c = center.c + dc;
+    if (c >= 0 && c < SIZE) for (let r = 0; r < SIZE; r++) out.push({ r, c });
+  }
+  return out;
+};
 
 export function applySwap(board: Board, a: Coord, b: Coord): Board {
   const nb = cloneBoard(board);
@@ -489,18 +502,37 @@ function comboIgnite(origA: Gem, origB: Gem, posOrigA: Coord, posOrigB: Coord, s
   const sB = origB.special!;
   // colorBomb + colorBomb → всё поле.
   if (sA === 'colorBomb' && sB === 'colorBomb') return { clear: allCells() };
-  // colorBomb + любая → снести весь тип партнёра + детонировать партнёра.
+  // colorBomb + line/bomb → КАЖДАЯ фишка типа партнёра «становится» его спецом и детонирует
+  // (цепная очистка всего цвета). Сама цветобомба детонирует по типу партнёра (выбирает его цвет),
+  // а не по своему — поэтому colorTarget = тип партнёра.
   if (sA === 'colorBomb' || sB === 'colorBomb') {
-    const cbPos = sA === 'colorBomb' ? posOrigA : posOrigB;
-    const otherPos = sA === 'colorBomb' ? posOrigB : posOrigA;
-    const otherGem = sA === 'colorBomb' ? origB : origA;
-    return { clear: [cbPos, ...cellsOfType(swapped, otherGem.type)], detonate: [{ coord: otherPos }] };
+    const cbIsA = sA === 'colorBomb';
+    const cbPos = cbIsA ? posOrigA : posOrigB;
+    const partnerPos = cbIsA ? posOrigB : posOrigA;
+    const partnerSpecial = cbIsA ? sB : sA; // 'line' | 'bomb' (cb+cb уже обработан выше)
+    const partnerType = swapped[partnerPos.r][partnerPos.c]!.type;
+    const clear: Coord[] = [];
+    for (const t of cellsOfType(swapped, partnerType)) {
+      if (partnerSpecial === 'line') {
+        for (let c = 0; c < SIZE; c++) clear.push({ r: t.r, c });
+        for (let r = 0; r < SIZE; r++) clear.push({ r, c: t.c });
+      } else {
+        clear.push(...square(t, 1)); // bomb-конверсия: 3×3 вокруг каждой фишки типа
+      }
+    }
+    return { clear, detonate: [{ coord: cbPos, colorTarget: partnerType }] };
   }
   // bomb + bomb → 5×5.
   if (sA === 'bomb' && sB === 'bomb') {
     return { clear: square(posOrigA, 2), detonate: [{ coord: posOrigA }, { coord: posOrigB }] };
   }
-  // line+line (крест) / line+bomb — детонируем оба, цепь соберёт ряды/столбцы/3×3.
+  // line + bomb → «толстый крест»: 3 ряда + 3 столбца, центр — на ЛИНИИ (тогда 3×3-эффект бомбы и
+  // ряд/столбец линии целиком умещаются в крест, и набор очистки = ровно толстый крест).
+  if ((sA === 'line' && sB === 'bomb') || (sA === 'bomb' && sB === 'line')) {
+    const linePos = sA === 'line' ? posOrigA : posOrigB;
+    return { clear: thickCross(linePos), detonate: [{ coord: posOrigA }, { coord: posOrigB }] };
+  }
+  // line + line (крест) — детонируем оба, цепь соберёт оба ряда и оба столбца.
   return { detonate: [{ coord: posOrigA }, { coord: posOrigB }] };
 }
 
@@ -549,14 +581,22 @@ export function activateInPlace(board: Board, cell: Coord, rng: Rng): ResolveRes
 // hasAnyMove / reshuffle / createBoard.
 // ============================================================================
 
-export function hasAnyMove(board: Board): boolean {
+/**
+ * Первая валидная пара-своп (вправо/вниз) или null — тот же перебор, что в hasAnyMove. Нужна
+ * UI для ненавязчивой подсказки при простое (подсветить пару). Чистая, без побочных эффектов.
+ */
+export function findAnyMove(board: Board): [Coord, Coord] | null {
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
-      if (c + 1 < SIZE && isValidSwap(board, { r, c }, { r, c: c + 1 })) return true;
-      if (r + 1 < SIZE && isValidSwap(board, { r, c }, { r: r + 1, c })) return true;
+      if (c + 1 < SIZE && isValidSwap(board, { r, c }, { r, c: c + 1 })) return [{ r, c }, { r, c: c + 1 }];
+      if (r + 1 < SIZE && isValidSwap(board, { r, c }, { r: r + 1, c })) return [{ r, c }, { r: r + 1, c }];
     }
   }
-  return false;
+  return null;
+}
+
+export function hasAnyMove(board: Board): boolean {
+  return findAnyMove(board) !== null;
 }
 
 function hasImmediateMatchAt(board: Board, r: number, c: number, type: GemType): boolean {
