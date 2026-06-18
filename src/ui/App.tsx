@@ -12,8 +12,9 @@ import { Wallet } from './components/Wallet';
 // старт. Никаких статических импортов из games/*.
 const Game2048 = lazy(() => import('../games/g2048'));
 const Match3 = lazy(() => import('../games/match3'));
+const Wordle = lazy(() => import('../games/wordle'));
 
-type View = 'hub' | 'g2048' | 'm3';
+type View = 'hub' | 'g2048' | 'm3' | 'w5';
 
 function Shell() {
   const rewards = useRewards();
@@ -32,6 +33,7 @@ function Shell() {
           onPlay={(id) => {
             if (id === '2048') setView('g2048');
             else if (id === 'm3') setView('m3');
+            else if (id === 'w5') setView('w5');
           }}
           onOpenWallet={openWallet}
         />
@@ -44,6 +46,11 @@ function Shell() {
       {view === 'm3' && (
         <Suspense fallback={<LoadingSplash />}>
           <Match3 onBack={() => setView('hub')} onOpenWallet={openWallet} />
+        </Suspense>
+      )}
+      {view === 'w5' && (
+        <Suspense fallback={<LoadingSplash />}>
+          <Wordle onBack={() => setView('hub')} />
         </Suspense>
       )}
 

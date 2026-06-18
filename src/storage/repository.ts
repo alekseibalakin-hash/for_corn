@@ -3,6 +3,7 @@ import type { Grid } from '../game/types';
 import type { Board as Match3Board, Obstacles } from '../games/match3/logic';
 import type { SpicyLevelState } from '../games/match3/levels';
 import type { M3CumulativeStats, M3CurrentGame } from '../games/match3/stats';
+import type { W5DailyState, W5Stats } from '../games/wordle/wordle.types';
 import { STORAGE_KEYS, type KVStore } from './types';
 
 /** Сохранённая текущая партия для resume (DESIGN §3, ключ `board`). */
@@ -92,6 +93,11 @@ export interface GameRepository {
   saveProgress(progress: Progress): Promise<void>;
   getVersion(): Promise<string | null>;
   setVersion(v: string): Promise<void>;
+  // --- «5 букв» (w5): ежедневная партия + статы (аддитивные ключи, STORAGE_VERSION не меняем). ---
+  loadW5Daily(): Promise<W5DailyState | null>;
+  saveW5Daily(state: W5DailyState): Promise<void>;
+  loadW5Stats(): Promise<W5Stats | null>;
+  saveW5Stats(stats: W5Stats): Promise<void>;
   /** Полный сброс игрового состояния (партия, статы, кошелёк, история, прогресс). */
   resetState(): Promise<void>;
 }
@@ -116,6 +122,10 @@ export function createRepository(store: KVStore): GameRepository {
     saveProgress: (progress) => saveJSON(store, STORAGE_KEYS.progress, progress),
     getVersion: () => store.getItem(STORAGE_KEYS.version),
     setVersion: (v) => store.setItem(STORAGE_KEYS.version, v),
+    loadW5Daily: () => loadJSON<W5DailyState>(store, STORAGE_KEYS.w5Daily),
+    saveW5Daily: (state) => saveJSON(store, STORAGE_KEYS.w5Daily, state),
+    loadW5Stats: () => loadJSON<W5Stats>(store, STORAGE_KEYS.w5Stats),
+    saveW5Stats: (stats) => saveJSON(store, STORAGE_KEYS.w5Stats, stats),
     resetState: async () => {
       await Promise.all([
         store.removeItem(STORAGE_KEYS.board),
@@ -126,6 +136,9 @@ export function createRepository(store: KVStore): GameRepository {
         // Зарезервированные ключи match3: чистим тоже, чтобы ?reset=1 был полным (фаза B).
         store.removeItem(STORAGE_KEYS.match3Board),
         store.removeItem(STORAGE_KEYS.match3Stats),
+        // «5 букв»: аддитивные ключи, тоже в ?reset=1.
+        store.removeItem(STORAGE_KEYS.w5Daily),
+        store.removeItem(STORAGE_KEYS.w5Stats),
       ]);
     },
   };

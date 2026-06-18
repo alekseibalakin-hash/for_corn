@@ -50,10 +50,34 @@ export default {
           '50%': { transform: 'scale(1.18)' },
           '100%': { transform: 'scale(1)' },
         },
+        // «5 букв» — прыжок победного тайла (стагерная задержка через inline-style)
+        'w5-bounce': {
+          '0%, 100%': { transform: 'translateY(0) scaleY(1)' },
+          '30%': { transform: 'translateY(-10px) scaleY(1.04)' },
+          '60%': { transform: 'translateY(-5px) scaleY(1)' },
+        },
+        // «5 букв» — встряхивание строки на невалидном вводе
+        'w5-shake': {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '15%': { transform: 'translateX(-6px)' },
+          '35%': { transform: 'translateX(6px)' },
+          '55%': { transform: 'translateX(-5px)' },
+          '75%': { transform: 'translateX(5px)' },
+          '90%': { transform: 'translateX(-2px)' },
+        },
+        // «5 букв» — мягкий поп при вводе буквы
+        'w5-pop': {
+          '0%': { transform: 'scale(1)' },
+          '50%': { transform: 'scale(1.1)' },
+          '100%': { transform: 'scale(1)' },
+        },
       },
       animation: {
         'pop-in': 'pop-in 180ms ease-out',
         'merge-pop': 'merge-pop 160ms ease-out',
+        'w5-bounce': 'w5-bounce 0.4s ease-in-out both',
+        'w5-shake': 'w5-shake 0.5s ease-in-out',
+        'w5-pop': 'w5-pop 0.1s ease-out',
       },
     },
   },

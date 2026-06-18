@@ -21,6 +21,8 @@ export const STORAGE_KEYS = {
   version: 'schemaVersion', // версия данных — для разового сброса (см. STORAGE_VERSION)
   match3Board: 'match3.board', // ФАЗА B: партия match3 (зарезервировано, не используется)
   match3Stats: 'match3.stats', // ФАЗА B: статы match3 с префиксом m3_ (зарезервировано)
+  w5Daily: 'w5.daily', // «5 букв»: ежедневная партия (dateKey + guesses + status)
+  w5Stats: 'w5.stats', // «5 букв»: накопленная статистика (w5_ неймспейс)
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

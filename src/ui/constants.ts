@@ -5,7 +5,7 @@ export const PET_NAME = 'Кукурузка';
 // Видимая метка сборки — чтобы глазами понять, загрузилась ли новая версия (а не кэш).
 // Поднимай при каждом деплое, который хочешь подтвердить визуально.
 // STORAGE_VERSION при этом НЕ трогаем (иначе сотрёт данные жены).
-export const BUILD_TAG = 'v11';
+export const BUILD_TAG = 'v12';
 
 /**
  * Соглашение неймспейса статов хаба (DESIGN-HUB §3):
@@ -27,8 +27,9 @@ export interface GameTile {
   status: 'play' | 'soon';
 }
 
-/** Каталог игр хаба. Фаза B: и 2048, и Match-3 играбельны. */
+/** Каталог игр хаба. */
 export const GAMES: GameTile[] = [
   { id: '2048', title: '2048 с любовью', subtitle: 'Складывай плитки, собирай подарки ❤️', emoji: '🌽', status: 'play' },
   { id: 'm3', title: 'Match-3', subtitle: 'Собирай тройки и спецфишки ❤️', emoji: '🍓', status: 'play' },
+  { id: 'w5', title: '5 букв', subtitle: 'Угадай слово за 6 попыток ❤️', emoji: '🔤', status: 'play' },
 ];
