@@ -278,7 +278,8 @@ export function useMatch3(mode: Match3Mode = 'light') {
       // Склейка: лайт-слот (echo, неизменный за этот маунт) + наш spicy-слот. ПОЛНЫЙ объект —
       // иначе coalescingStore last-write-wins сотрёт лайт-резюм жены (бриф §5).
       const top = echoLightRef.current;
-      const payload: PersistedMatch3 = { ...(top ?? {}), spicy: currentSpicyState() };
+      const snap = currentSpicyState();
+      const payload: PersistedMatch3 = { ...(top ?? {}), spicy: snap };
       void repo.saveMatch3Board(payload).catch((err) => console.warn('[m3] не удалось сохранить «match3.board» (перчинка):', err));
       return;
     }
@@ -380,6 +381,9 @@ export function useMatch3(mode: Match3Mode = 'light') {
         timersRef.current.forEach(clearTimeout);
         timersRef.current = [];
         clearIdleTimer();
+        if (!demoMode && persistOkRef.current) {
+          void repo.saveMatch3Stats(statsRef.current).catch(() => {});
+        }
       };
     }
 

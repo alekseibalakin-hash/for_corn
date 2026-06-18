@@ -70,6 +70,6 @@ describe('контент-конфиги', () => {
       if (isCondition(a.trigger)) thresholds.push(a.trigger.value);
     }
     expect(thresholds).toEqual([1, 3, 5, 8, 12, 18, 25]); // нелинейные = нет грайнда
-    expect(achievements.find((a) => a.id === 'm3-spicy-25')?.rewardId).toBe('restaurant'); // вершина — ресторан
+    expect(achievements.find((a) => a.id === 'm3-spicy-25')?.rewardId).toBe('fine-dining'); // вершина — ужин высокой кухни (A4: restaurant только у reach-2048)
   });
 });

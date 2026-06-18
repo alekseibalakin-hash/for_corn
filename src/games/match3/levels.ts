@@ -130,13 +130,35 @@ function swapMatchCells(board: Board, ob: Obstacles, a: Coord, b: Coord): Coord[
 }
 
 /**
+ * Минимальное манхэттенское расстояние от ячеек cells до ближайшей льдины.
+ * Используется в fallback-ранжировании: солвер предпочитает ходы, продвигающиеся к льду,
+ * а не первый попавшийся валидный своп (который мог бы гулять далеко и раздувать witness).
+ */
+function minDistToIce(cells: Coord[], ob: Obstacles): number {
+  let min = SIZE * 4;
+  for (const { r, c } of cells) {
+    for (let ir = 0; ir < SIZE; ir++) {
+      for (let ic = 0; ic < SIZE; ic++) {
+        if (ob.ice[ir][ic] > 0) {
+          const d = Math.abs(r - ir) + Math.abs(c - ic);
+          if (d < min) min = d;
+        }
+      }
+    }
+  }
+  return min;
+}
+
+/**
  * Выбрать ход жадно: предпочесть тот, что РЕАЛЬНО скалывает лёд (его матч орто-смежен со льдом), либо
- * своп со спецфишкой (большой клир → прогресс). Иначе — любой валидный ход (поле «крутится», рефилл
- * приносит новые ягоды к льду). Валидность/матч-клетки — дешёвой локальной проверкой (поле стабильно).
+ * своп со спецфишкой (большой клир → прогресс). Иначе — среди всех валидных ходов выбираем БЛИЖАЙШИЙ
+ * к льду (по манхэттен-дистанции): это снижает раздувание witness-счётчика (солвер «гуляет» меньше).
+ * Валидность/матч-клетки — дешёвой локальной проверкой (поле стабильно).
  * Возвращает null, если ходов нет вовсе (солвер трактует это как провал — БЕЗ reshuffle, безопасно).
  */
 function pickSolverMove(board: Board, ob: Obstacles): SolverMove | null {
   let fallback: SolverMove | null = null;
+  let fallbackDist = SIZE * 4 + 1;
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
       const a = { r, c };
@@ -148,8 +170,9 @@ function pickSolverMove(board: Board, ob: Obstacles): SolverMove | null {
         if (board[a.r][a.c]!.special || board[b.r][b.c]!.special) return { a, b }; // спец → точно прогресс
         const cells = swapMatchCells(board, ob, a, b);
         if (cells.length === 0) continue; // невалидный своп
-        if (!fallback) fallback = { a, b };
         if (cellsTouchIce(cells, ob)) return { a, b }; // ход скалывает лёд — берём сразу
+        const d = minDistToIce(cells, ob);
+        if (d < fallbackDist) { fallback = { a, b }; fallbackDist = d; }
       }
     }
   }
@@ -191,9 +214,11 @@ export function simulateSolve(
 /**
  * Альт-стратегия «снизу-справа»: зеркало pickSolverMove с обратным порядком сканирования.
  * Используется как дополнительный свидетель для мультистратегичного worst-case бюджета.
+ * Fallback тоже предпочитает ход ближайший к льду (аналогично pickSolverMove).
  */
 function pickLastIceSolverMove(board: Board, ob: Obstacles): SolverMove | null {
   let fallback: SolverMove | null = null;
+  let fallbackDist = SIZE * 4 + 1;
   for (let r = SIZE - 1; r >= 0; r--) {
     for (let c = SIZE - 1; c >= 0; c--) {
       const a = { r, c };
@@ -205,8 +230,9 @@ function pickLastIceSolverMove(board: Board, ob: Obstacles): SolverMove | null {
         if (board[a.r][a.c]!.special || board[b.r][b.c]!.special) return { a, b };
         const cells = swapMatchCells(board, ob, a, b);
         if (cells.length === 0) continue;
-        if (!fallback) fallback = { a, b };
         if (cellsTouchIce(cells, ob)) return { a, b };
+        const d = minDistToIce(cells, ob);
+        if (d < fallbackDist) { fallback = { a, b }; fallbackDist = d; }
       }
     }
   }
@@ -311,7 +337,7 @@ export function validLayout(layout: RoomLayout): boolean {
 // generateLevel — total-функция: ВСЕГДА возвращает проходимый уровень (бриф §2).
 // ============================================================================
 
-const MAX_RETRIES = 40;
+const MAX_RETRIES = 80;
 const FORKS = 3; // k-fork (бриф §2.3): solver на seed^1..k, бюджет от худшего выигравшего
 
 const randInt = (rng: Rng, min: number, max: number): number => min + Math.floor(rng() * (max - min + 1));
@@ -339,7 +365,13 @@ function buildLevel(level: number, aSeed: number, layout: RoomLayout, band: Spic
     if (altLast.solved) worst = Math.max(worst, altLast.moves.length);
   }
   const floor = band.budgetFloor ?? 4;
-  const movesBudget = Math.max(worst + floor, Math.max(1, Math.ceil(worst * band.budgetMultiplier)));
+  const baseBudget = Math.max(worst + floor, Math.max(1, Math.ceil(worst * band.budgetMultiplier)));
+  const budgetK = band.budgetK ?? 8;
+  const kCeiling = target * budgetK;
+  // K-потолок: если уровень «слишком дорогой» (солверу нужно >target×K ходов) — отбраковываем.
+  // На практике это отсекает патологичные раскладки (много льда в углу, мало доступных свопов).
+  if (kCeiling < worst) return null;
+  const movesBudget = Math.min(baseBudget, kCeiling);
   return { level, seed: aSeed, board, obstacles, goal, movesBudget };
 }
 
@@ -353,13 +385,44 @@ const PARACHUTE_LAYOUTS: RoomLayout[] = [
 ];
 
 /**
- * Parachute-fallback (бриф §2.5): заранее заданные заведомо решаемые раскладки. Используется, если за
- * MAX_RETRIES не нашли уровень ⇒ generateLevel ВСЕГДА total. КАЖДЫЙ возврат — солвер-проверенный (бюджет
- * от свидетеля): перебираем раскладки от тривиальной к максимально тривиальной × много seed, пока солвер
- * не подтвердит проходимость. Это закрывает дыру «final fallback без свидетеля»: безгейтовый возврат
- * теперь невозможен (3 раскладки × 96 seed ⇒ вероятность недостижения ниже любой реальной).
+ * Parachute-fallback: МАСШТАБИРОВАННЫЙ под уровень, каждый возврат солвер-проверен (A3).
+ *
+ * Фаза 1 (приоритет): ищем раскладку из бэнда уровня — полный диапазон льда, без блоков,
+ * меньше кластеров + расширенный budgetK×3 (kCeiling ~3× выше нормы → принимаем сложные сиды
+ * с медленным свидетелем, которые отсеивал основной цикл). Для L25-30 это даёт 24-28 льдин
+ * вместо тривиальных 4.
+ *
+ * Фаза 2: постепенно снижаем лёд (до iceMin/2) — остаёмся в разумном диапазоне сложности.
+ *
+ * Фаза 3: фикс-раскладки (4/2/1 льдины) — АБСОЛЮТНЫЙ запасной вариант; на практике недостижим.
  */
 export function parachute(level: number, seed: number): SpicyLevel {
+  const band = spicyBandForLevel(level);
+  const relaxedBand: SpicyBand = { ...band, budgetK: (band.budgetK ?? 8) * 3 };
+
+  // Фаза 1: бэнд-льдины, без блоков, меньше кластеров, расширенный kCeiling.
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const aSeed = (seed + attempt * 0x9e3779b1) >>> 0;
+    const layoutRng = mulberry32((aSeed ^ 0x27d4eb2f) >>> 0);
+    const iceCount = randInt(layoutRng, band.iceMin, band.iceMax);
+    const layout = placeObstacles(layoutRng, iceCount, 0, Math.min(band.clusterChance, 0.15));
+    const lvl = buildLevel(level, aSeed, layout, relaxedBand);
+    if (lvl) return lvl;
+  }
+
+  // Фаза 2: меньше льда (до iceMin/2), всё ещё без блоков.
+  const iceFloor = Math.max(4, Math.floor(band.iceMin / 2));
+  for (let iceTarget = band.iceMin - 1; iceTarget >= iceFloor; iceTarget--) {
+    for (let attempt = 0; attempt < 32; attempt++) {
+      const aSeed = (seed + attempt * 0x9e3779b1 + (iceTarget * 0x12345)) >>> 0;
+      const layoutRng = mulberry32((aSeed ^ 0x27d4eb2f) >>> 0);
+      const layout = placeObstacles(layoutRng, iceTarget, 0, 0.1);
+      const lvl = buildLevel(level, aSeed, layout, relaxedBand);
+      if (lvl) return lvl;
+    }
+  }
+
+  // Фаза 3: фикс-раскладки (абсолютный запасной вариант, на практике недостижим после фаз 1-2).
   for (const layout of PARACHUTE_LAYOUTS) {
     for (let attempt = 0; attempt < 96; attempt++) {
       const aSeed = (seed + attempt * 0x9e3779b1 + 1) >>> 0;
@@ -370,14 +433,11 @@ export function parachute(level: number, seed: number): SpicyLevel {
       const goal: SpicyGoal = { kind: 'clearIce', target };
       const res = simulateSolve(board, obstacles, goal, SOLVE_CAP, mulberry32(aSeed));
       if (res.solved) {
-        // Очень щедрый бюджет (свидетель ×3, не меньше target×6): parachute = добрая страховка.
         const movesBudget = Math.max(target * 6, Math.ceil(res.moves.length * 3));
         return { level, seed: aSeed, board, obstacles, goal, movesBudget };
       }
     }
   }
-  // Недостижимо на практике (3 раскладки × 96 seed), но если всё-таки дошли — honest loop на последней.
-  // «Все возвраты солвер-проверены» — буквально верно.
   const lastLayout = PARACHUTE_LAYOUTS[PARACHUTE_LAYOUTS.length - 1];
   for (let attempt = 0; attempt < 64; attempt++) {
     const aSeed = (seed + attempt * 0xd2b4a1c3 + 0x1f) >>> 0;

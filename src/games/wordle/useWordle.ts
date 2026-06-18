@@ -15,6 +15,7 @@ import {
   type W5DailyState,
   type W5Stats,
 } from './wordle.types';
+import { localYMD, previousYMD, type StatSnapshot } from '../../engine';
 import { mulberry32, seededShuffle } from '../../engine/rng';
 import answersRaw from '../../../content/wordle/answers.json';
 import allowedRaw from '../../../content/wordle/allowed.json';
@@ -41,6 +42,32 @@ export function getDailyWord(): string {
 
 export function getRandomWord(): string {
   return ANSWERS[Math.floor(Math.random() * ANSWERS.length)];
+}
+
+/** Плоский snapshot для движка ачивок (только числовые поля, без lastDailyWonDate). */
+function buildW5Snapshot(stats: W5Stats): StatSnapshot {
+  return {
+    w5_dailyPlayed: stats.dailyPlayed,
+    w5_dailyWins: stats.dailyWins,
+    w5_endlessPlayed: stats.endlessPlayed,
+    w5_endlessWins: stats.endlessWins,
+    w5_bestGuess: stats.bestGuess,
+    w5_dailyStreak: stats.w5_dailyStreak,
+    w5_maxDailyStreak: stats.w5_maxDailyStreak,
+  };
+}
+
+/** Обновляет дневную серию побед (только для daily-режима, идемпотентно в сутки). */
+function updateW5Streak(stats: W5Stats, today: string): W5Stats {
+  if (stats.lastDailyWonDate === today) return stats;
+  const continued = stats.lastDailyWonDate === previousYMD(today);
+  const w5_dailyStreak = continued ? stats.w5_dailyStreak + 1 : 1;
+  return {
+    ...stats,
+    w5_dailyStreak,
+    w5_maxDailyStreak: Math.max(stats.w5_maxDailyStreak, w5_dailyStreak),
+    lastDailyWonDate: today,
+  };
 }
 
 /**
@@ -214,7 +241,7 @@ export function useWordle(mode: W5Mode) {
       if (newStatus !== 'playing') {
         const prev = statsRef.current;
         const isDaily = mode === 'daily';
-        const next: W5Stats = {
+        const baseNext: W5Stats = {
           ...prev,
           dailyPlayed: isDaily ? prev.dailyPlayed + 1 : prev.dailyPlayed,
           dailyWins: isDaily && won ? prev.dailyWins + 1 : prev.dailyWins,
@@ -226,15 +253,18 @@ export function useWordle(mode: W5Mode) {
               : Math.min(prev.bestGuess, newGuesses.length)
             : prev.bestGuess,
         };
+        const next = won && isDaily ? updateW5Streak(baseNext, localYMD(Date.now())) : baseNext;
         setStats(next);
         saveStats(next);
 
         if (mode === 'daily') {
           saveDaily({ dateKey: getDateKey(), guesses: newGuesses, status: newStatus });
         }
+
+        rewards.grant('w5', buildW5Snapshot(next), buildW5Snapshot(prev));
       }
     });
-  }, [input, after, mode, saveDaily, saveStats]);
+  }, [input, after, mode, saveDaily, saveStats, rewards]);
 
   // Физическая клавиатура (для тестирования на десктопе).
   useEffect(() => {

@@ -70,8 +70,12 @@ export interface Achievement {
 }
 
 export interface AchievementLimits {
-  /** Анти-грайнд: максимум купонов-от-challenge в сутки (DESIGN §5). */
+  /** @deprecated Заменён двухуровневым лимитом лёгких купонов (maxEasyPerGamePerDay/Total). Хранится для обратной совместимости. */
   maxChallengeCouponsPerDay: number;
+  /** Анти-грайнд: лёгкие купоны (small/medium без rewardId) — потолок на игру в сутки. */
+  maxEasyPerGamePerDay: number;
+  /** Анти-грайнд: лёгкие купоны — потолок по всему хабу в сутки. */
+  maxEasyPerDayTotal: number;
 }
 
 export interface AchievementsConfig {
@@ -97,6 +101,8 @@ export interface SpicyBand {
   budgetMultiplier: number;
   /** Аддитивный пол: movesBudget = max(worst + budgetFloor, ceil(worst × multiplier)). По умолчанию 4. */
   budgetFloor?: number;
+  /** Абсолютный потолок: movesBudget ≤ target × budgetK. По умолчанию 8. Бьёт раздутый worst. */
+  budgetK?: number;
 }
 
 export interface SpicyConfig {

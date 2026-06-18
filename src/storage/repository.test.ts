@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { HistoryEntry } from '../engine/types';
 import { memoryBackend } from './backends';
 import { byteLength, createRepository, trimHistory } from './repository';
+import { STORAGE_KEYS } from './types';
 import type { KVStore } from './types';
 import { defaultStats } from '../engine/stats';
 import { defaultM3Game, defaultM3Stats } from '../games/match3/stats';
@@ -44,7 +45,7 @@ describe('loadJSON — стойкость к сбою getItem (фикс A)', () 
   it('реальные данные в store целы после reject — saveXxx с дефолтом не вызывался', async () => {
     const inner = memoryBackend({
       stats: JSON.stringify({ ...defaultStats(), totalScore: 9999 }),
-      'match3.stats': JSON.stringify({ ...defaultM3Stats(), totalScore: 777 }),
+      match3_stats: JSON.stringify({ ...defaultM3Stats(), totalScore: 777 }),
     });
     // Backend реджектит чтение, но write проксируется на inner (чтобы убедиться: ничего не написано)
     const failRead: KVStore = {
@@ -58,7 +59,7 @@ describe('loadJSON — стойкость к сбою getItem (фикс A)', () 
     await expect(repo.loadMatch3Stats()).rejects.toThrow();
     // Исходные данные в inner НЕ затёрты (saveXxx не вызван с дефолтом)
     expect(JSON.parse((await inner.getItem('stats'))!)?.totalScore).toBe(9999);
-    expect(JSON.parse((await inner.getItem('match3.stats'))!)?.totalScore).toBe(777);
+    expect(JSON.parse((await inner.getItem('match3_stats'))!)?.totalScore).toBe(777);
   });
 
   it('подлинное отсутствие ключа (getItem → null) даёт null без броска', async () => {
@@ -111,7 +112,7 @@ describe('repository round-trip', () => {
   it('переживает «перезагрузку»: новый repo поверх того же backend видит данные', async () => {
     const backend = memoryBackend();
     const repo1 = createRepository(backend);
-    await repo1.saveProgress({ completed: ['welcome'], challengeCooldowns: {}, challengeCouponsToday: 1, couponDayDate: '2026-06-15' });
+    await repo1.saveProgress({ completed: ['welcome'], challengeCooldowns: {}, challengeCouponsToday: 1, easyCouponsTotalToday: 0, easyCouponsByGameToday: {}, couponDayDate: '2026-06-15' });
     const repo2 = createRepository(backend);
     const loaded = await repo2.loadProgress();
     expect(loaded?.completed).toEqual(['welcome']);
@@ -176,8 +177,9 @@ describe('repository round-trip', () => {
 
   it('match3: СТАРЫЙ board жены без obstacles грузится — поле через дефолт пустое (миграция)', async () => {
     // Эмулируем ровно blob предыдущей версии: только {board, game}, без поля obstacles.
+    // (A1: ключ match3_board — точки невалидны для Telegram CloudStorage, данных под старым match3.board там нет.)
     const legacy = JSON.stringify({ board: [[{ type: 2 }, { type: 3 }]], game: { ...defaultM3Game(), sessionScore: 42 } });
-    const repo = createRepository(memoryBackend({ 'match3.board': legacy }));
+    const repo = createRepository(memoryBackend({ match3_board: legacy }));
     const loaded = await repo.loadMatch3Board();
     expect(loaded?.game?.sessionScore).toBe(42); // партия читается
     expect(loaded?.obstacles).toBeUndefined(); // нового поля нет
@@ -190,7 +192,7 @@ describe('repository round-trip', () => {
     const backend = memoryBackend();
     const repo = createRepository(backend);
     await repo.saveMatch3Board({ board: [[{ type: 1 }]], game: defaultM3Game() });
-    const raw = await backend.getItem('match3.board');
+    const raw = await backend.getItem('match3_board');
     expect(raw).not.toBeNull();
     expect(JSON.parse(raw!).obstacles).toBeUndefined(); // поля obstacles в эндлесс-blob нет
   });
@@ -224,7 +226,7 @@ describe('repository round-trip', () => {
     const backend = memoryBackend();
     const repo = createRepository(backend);
     await repo.saveMatch3Board({ board: [[{ type: 1 }]], game: defaultM3Game() });
-    const raw = JSON.parse((await backend.getItem('match3.board'))!);
+    const raw = JSON.parse((await backend.getItem('match3_board'))!);
     expect(raw.spicy).toBeUndefined();
     expect(raw.mode).toBeUndefined();
     expect(raw.obstacles).toBeUndefined();
@@ -241,5 +243,14 @@ describe('repository round-trip', () => {
     const loaded = await repo.loadMatch3Board();
     expect(loaded?.board).toBeUndefined(); // лайт-загрузка по Array.isArray(board) уйдёт в «нет партии»
     expect(normalizeSpicy(loaded?.spicy)?.level).toBe(lvl.level);
+  });
+});
+
+describe('STORAGE_KEYS — Telegram CloudStorage совместимость (A1)', () => {
+  it('все значения ключей содержат только символы A-Za-z0-9_- (без точек)', () => {
+    const validKey = /^[A-Za-z0-9_-]+$/;
+    for (const [name, key] of Object.entries(STORAGE_KEYS)) {
+      expect(key, `STORAGE_KEYS.${name} = "${key}" содержит недопустимые символы`).toMatch(validKey);
+    }
   });
 });

@@ -63,6 +63,8 @@ function run(list: Achievement[], progress: Progress, over: Partial<Parameters<t
     rng: () => 0,
     achievementsList: list,
     maxChallengeCouponsPerDay: 3,
+    maxEasyPerGamePerDay: 3,
+    maxEasyPerDayTotal: 5,
     rewardSource: source,
     ...over,
   });
@@ -105,13 +107,51 @@ describe('единый жизненный цикл задания (DESIGN §15)'
     expect(res.skipped).toContainEqual({ id: 'c', reason: 'pending' });
     expect(res.grants).toHaveLength(0);
   });
+
+  it('A4: две ачивки с одним rewardId — пока первый live-купон в кошельке, второй не выдаётся', () => {
+    // named — крупная именная ачивка с фикс. rewardId (по типу reach-2048 / m3-spicy-25).
+    const named = (id: string): Achievement => ({
+      id,
+      type: 'milestone',
+      title: id,
+      description: '',
+      trigger: always,
+      rewardId: 'l1', // оба указывают на ту же награду
+    });
+    const a1 = named('named-a');
+    const a2 = named('named-b');
+
+    // Первая выдаётся — кошелёк пуст.
+    const res1 = run([a1, a2], defaultProgress(TODAY));
+    expect(res1.grants).toHaveLength(1);
+    expect(res1.grants[0].achievement.id).toBe('named-a');
+    expect(res1.skipped).toContainEqual({ id: 'named-b', reason: 'pending' });
+
+    // Второй раз: l1 уже live — ни одна не выдаётся.
+    const liveL1 = coupon('named-a', 'l1', NOW + 30 * DAY_MS);
+    const res2 = run([a1, a2], defaultProgress(TODAY), { wallet: [liveL1] });
+    expect(res2.grants).toHaveLength(0);
+    expect(res2.skipped.filter((s) => s.reason === 'pending').map((s) => s.id)).toEqual(
+      expect.arrayContaining(['named-a', 'named-b']),
+    );
+  });
 });
 
 describe('milestone', () => {
-  it('НЕ ограничивается дневным потолком — все 5 вех выдаются сразу', () => {
+  it('ограничивается дневным лимитом лёгких купонов (per-game cap = 3)', () => {
     const list = ['m1', 'm2', 'm3', 'm4', 'm5'].map(milestone);
-    const res = run(list, defaultProgress(TODAY), { maxChallengeCouponsPerDay: 1 });
-    expect(res.grants).toHaveLength(5);
+    const res = run(list, defaultProgress(TODAY)); // maxEasyPerGamePerDay: 3 из run()
+    expect(res.grants).toHaveLength(3);
+    expect(res.skipped.filter((s) => s.reason === 'dailyCap').map((s) => s.id)).toEqual(['m4', 'm5']);
+  });
+
+  it('large-веха (rewardTier: large) НЕ ограничивается лимитом лёгких купонов', () => {
+    const large: Achievement = { ...milestone('big'), rewardTier: 'large' };
+    const list = ['m1', 'm2', 'm3', 'm4'].map(milestone).concat(large);
+    const res = run(list, defaultProgress(TODAY));
+    // m1..m3 выдаются (easy, per-game = 3); m4 капнут (dailyCap); big (large) выдаётся сверх лимита
+    expect(res.grants.map((g) => g.achievement.id)).toContain('big');
+    expect(res.grants).toHaveLength(4); // m1, m2, m3 + big
   });
 });
 
@@ -135,20 +175,33 @@ describe('challenge — cooldown', () => {
   });
 });
 
-describe('АНТИ-ГРАЙНД: дневной потолок купонов-от-challenge', () => {
-  it('упирается в потолок (3), лишние челленджи пропускаются как dailyCap', () => {
+describe('АНТИ-ГРАЙНД: двухуровневый дневной лимит лёгких купонов', () => {
+  it('per-game потолок (3): лишние easy-купоны пропускаются как dailyCap', () => {
     const list = ['c1', 'c2', 'c3', 'c4', 'c5'].map((id) => challenge(id));
     const res = run(list, defaultProgress(TODAY));
     expect(res.grants).toHaveLength(3);
-    expect(res.progress.challengeCouponsToday).toBe(3);
+    expect(res.progress.easyCouponsByGameToday['2048']).toBe(3);
     const capped = res.skipped.filter((s) => s.reason === 'dailyCap').map((s) => s.id);
     expect(capped).toEqual(['c4', 'c5']);
   });
 
-  it('вехи продолжают выдаваться, даже когда потолок челленджей выбран', () => {
+  it('hub-total потолок (5): ачивки разных игр суммируются', () => {
+    // Игра A (2048): 3 easy → per-game cap hit; игра B (m3): 2 easy → total=5, 3-я capped
+    const prog2048 = run(['c1', 'c2', 'c3'].map((id) => challenge(id)), defaultProgress(TODAY), { gameId: '2048' });
+    expect(prog2048.progress.easyCouponsTotalToday).toBe(3);
+
+    const m3miles = ['m1', 'm2', 'm3'].map((id) => tagged(id, 'm3'));
+    const resM3 = run(m3miles, prog2048.progress, { gameId: 'm3' });
+    expect(resM3.grants).toHaveLength(2); // total cap 5 → 3+2=5, 3-я blocked
+    expect(resM3.progress.easyCouponsTotalToday).toBe(5);
+  });
+
+  it('вехи тоже ограничиваются лимитом (milestone с small/medium rewardTier — это easy)', () => {
     const list = [challenge('c1'), challenge('c2'), challenge('c3'), milestone('big')];
     const res = run(list, defaultProgress(TODAY));
-    expect(res.grants.map((g) => g.achievement.id)).toEqual(['c1', 'c2', 'c3', 'big']);
+    // c1, c2, c3 (easy) → per-game cap 3 исчерпан; milestone('big') тоже easy → dailyCap
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['c1', 'c2', 'c3']);
+    expect(res.skipped).toContainEqual({ id: 'big', reason: 'dailyCap' });
   });
 
   it('капнутый челлендж НЕ ставится на cooldown — остаётся доступным назавтра', () => {
@@ -157,15 +210,25 @@ describe('АНТИ-ГРАЙНД: дневной потолок купонов-о
     expect(res.progress.challengeCooldowns['c4']).toBeUndefined();
   });
 
-  it('СБРОС В ПОЛНОЧЬ: новая локальная дата обнуляет счётчик', () => {
+  it('СБРОС В ПОЛНОЧЬ: новая локальная дата обнуляет easyCoupons-счётчики', () => {
     const today = run(['c1', 'c2', 'c3'].map((id) => challenge(id)), defaultProgress(TODAY));
-    expect(today.progress.challengeCouponsToday).toBe(3);
+    expect(today.progress.easyCouponsByGameToday['2048']).toBe(3);
+    expect(today.progress.easyCouponsTotalToday).toBe(3);
     const cappedToday = run([challenge('c4')], today.progress);
     expect(cappedToday.grants).toHaveLength(0);
 
     const tomorrow = run([challenge('c4')], cappedToday.progress, { now: NOW + DAY_MS, today: '2026-06-16' });
-    expect(tomorrow.progress.challengeCouponsToday).toBe(1);
+    expect(tomorrow.progress.easyCouponsByGameToday['2048']).toBe(1);
+    expect(tomorrow.progress.easyCouponsTotalToday).toBe(1);
     expect(tomorrow.grants).toHaveLength(1);
+  });
+
+  it('именная награда (rewardId) освобождена от лимита лёгких купонов', () => {
+    const named: Achievement = { ...milestone('named'), rewardTier: undefined, rewardId: 'l1' };
+    const filled = run(['c1', 'c2', 'c3'].map((id) => challenge(id)), defaultProgress(TODAY));
+    // per-game cap уже = 3; именная ачивка должна выдаться поверх лимита
+    const res = run([named], filled.progress);
+    expect(res.grants.map((g) => g.achievement.id)).toContain('named');
   });
 });
 

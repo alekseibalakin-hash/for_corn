@@ -14,6 +14,9 @@ export interface W5Stats {
   endlessPlayed: number;
   endlessWins: number;
   bestGuess: number; // min guesses to win (0 = never won)
+  w5_dailyStreak: number;
+  w5_maxDailyStreak: number;
+  lastDailyWonDate: string | null; // YYYY-MM-DD
 }
 
 export const WORD_LEN = 5;
@@ -86,6 +89,9 @@ export function normalizeW5Stats(raw: unknown): W5Stats {
     endlessPlayed: 0,
     endlessWins: 0,
     bestGuess: 0,
+    w5_dailyStreak: 0,
+    w5_maxDailyStreak: 0,
+    lastDailyWonDate: null,
   };
   if (!raw || typeof raw !== 'object') return zero;
   const r = raw as Record<string, unknown>;
@@ -97,5 +103,8 @@ export function normalizeW5Stats(raw: unknown): W5Stats {
     endlessPlayed: n('endlessPlayed'),
     endlessWins: n('endlessWins'),
     bestGuess: n('bestGuess'),
+    w5_dailyStreak: n('w5_dailyStreak'),
+    w5_maxDailyStreak: n('w5_maxDailyStreak'),
+    lastDailyWonDate: typeof r.lastDailyWonDate === 'string' ? r.lastDailyWonDate : null,
   };
 }

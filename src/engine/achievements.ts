@@ -1,4 +1,4 @@
-import { achievements as defaultAchievements, maxChallengeCouponsPerDay as defaultCap } from '../content';
+import { achievements as defaultAchievements, maxChallengeCouponsPerDay as defaultCap, maxEasyPerDayTotal as defaultEasyTotal, maxEasyPerGamePerDay as defaultEasyPerGame } from '../content';
 import { isAllOf, isAnyOf, isCondition, type Achievement, type Trigger } from '../content/types';
 import { contentRewardSource, createCoupon, isExpired, selectReward, type RewardSource, type Rng } from './coupons';
 import { evalTrigger } from './trigger';
@@ -55,7 +55,12 @@ export interface EvaluateParams {
   gameId?: string;
   rng?: Rng;
   achievementsList?: Achievement[];
+  /** @deprecated Больше не используется движком. Оставлен ради обратной совместимости call-sites. */
   maxChallengeCouponsPerDay?: number;
+  /** Лёгкие купоны (small/medium без rewardId): потолок на игру в сутки. */
+  maxEasyPerGamePerDay?: number;
+  /** Лёгкие купоны: потолок по всему хабу в сутки. */
+  maxEasyPerDayTotal?: number;
   rewardSource?: RewardSource;
 }
 
@@ -78,6 +83,15 @@ export interface EvaluateResult {
  * Сгорание купона прогресс не трогает → задание снова станет доступным.
  * Разнообразие: случайный купон не повторяет награду, уже лежащую в кошельке.
  */
+/**
+ * Лёгкий купон = small или medium тир, БЕЗ фиксированного rewardId.
+ * Large и именные (rewardId) освобождены от дневного потолка.
+ */
+function isEasyCoupon(a: Achievement): boolean {
+  if (a.rewardId) return false;
+  return a.rewardTier === 'small' || a.rewardTier === 'medium';
+}
+
 export function evaluateAchievements({
   snapshot,
   prevSnapshot,
@@ -88,14 +102,18 @@ export function evaluateAchievements({
   gameId = '2048',
   rng = Math.random,
   achievementsList = defaultAchievements,
-  maxChallengeCouponsPerDay = defaultCap,
+  // maxChallengeCouponsPerDay сохранён в сигнатуре ради обратной совместимости, но не используется.
+  maxChallengeCouponsPerDay: _maxChallengeCouponsPerDay = defaultCap,
+  maxEasyPerGamePerDay = defaultEasyPerGame,
+  maxEasyPerDayTotal = defaultEasyTotal,
   rewardSource = contentRewardSource,
 }: EvaluateParams): EvaluateResult {
-  // Сброс дневного счётчика в полночь (смена локальной даты).
+  // Сброс дневных счётчиков в полночь (смена локальной даты).
   const dayRollover = progress.couponDayDate !== today;
   const completed = new Set(progress.completed);
   const cooldowns: Record<string, number> = { ...progress.challengeCooldowns };
-  let challengeCouponsToday = dayRollover ? 0 : progress.challengeCouponsToday;
+  let easyCouponsTotalToday = dayRollover ? 0 : (progress.easyCouponsTotalToday ?? 0);
+  const easyCouponsByGameToday: Record<string, number> = dayRollover ? {} : { ...(progress.easyCouponsByGameToday ?? {}) };
 
   // Живые купоны: какие задания «pending» и какие награды уже на руках (для разнообразия).
   const live = wallet.filter((c) => !isExpired(c, now));
@@ -131,6 +149,12 @@ export function evaluateAchievements({
       skipped.push({ id: achievement.id, reason: 'pending' });
       continue;
     }
+    // Именная награда: если купон с тем же rewardId уже живёт в кошельке — не дублируем.
+    // Перевыдастся после погашения или сгорания (DESIGN §15).
+    if (achievement.rewardId && liveRewardIds.has(achievement.rewardId)) {
+      skipped.push({ id: achievement.id, reason: 'pending' });
+      continue;
+    }
 
     if (achievement.type === 'challenge') {
       const cooldownUntil = cooldowns[achievement.id];
@@ -138,12 +162,19 @@ export function evaluateAchievements({
         skipped.push({ id: achievement.id, reason: 'cooldown' });
         continue;
       }
-      if (challengeCouponsToday >= maxChallengeCouponsPerDay) {
+    }
+
+    // Двухуровневый лимит лёгких купонов: per-game И hub-total. Капнутый — НЕ идёт на кулдаун.
+    if (isEasyCoupon(achievement)) {
+      const gameCount = easyCouponsByGameToday[gameId] ?? 0;
+      if (gameCount >= maxEasyPerGamePerDay || easyCouponsTotalToday >= maxEasyPerDayTotal) {
         skipped.push({ id: achievement.id, reason: 'dailyCap' });
         continue;
       }
+    }
+
+    if (achievement.type === 'challenge') {
       cooldowns[achievement.id] = now + (achievement.cooldownDays ?? 0) * DAY_MS;
-      challengeCouponsToday += 1;
     }
 
     const reward = selectReward(achievement, rng, rewardSource, liveRewardIds);
@@ -152,12 +183,18 @@ export function evaluateAchievements({
     // Свежий купон тоже «занимает» задание и награду в рамках этого прогона.
     pendingAchievementIds.add(achievement.id);
     liveRewardIds.add(reward.id);
+
+    if (isEasyCoupon(achievement)) {
+      easyCouponsByGameToday[gameId] = (easyCouponsByGameToday[gameId] ?? 0) + 1;
+      easyCouponsTotalToday += 1;
+    }
   }
 
   const nextProgress: Progress = {
     ...progress,
     challengeCooldowns: cooldowns,
-    challengeCouponsToday,
+    easyCouponsTotalToday,
+    easyCouponsByGameToday,
     couponDayDate: today,
   };
 

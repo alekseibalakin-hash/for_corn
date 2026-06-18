@@ -193,12 +193,14 @@ describe('normalizeW5Stats — мягкое чтение', () => {
   it('null → нули', () => {
     expect(normalizeW5Stats(null)).toEqual({
       dailyPlayed: 0, dailyWins: 0, endlessPlayed: 0, endlessWins: 0, bestGuess: 0,
+      w5_dailyStreak: 0, w5_maxDailyStreak: 0, lastDailyWonDate: null,
     });
   });
 
   it('частичные данные дополняются нулями', () => {
     expect(normalizeW5Stats({ dailyPlayed: 5 })).toEqual({
       dailyPlayed: 5, dailyWins: 0, endlessPlayed: 0, endlessWins: 0, bestGuess: 0,
+      w5_dailyStreak: 0, w5_maxDailyStreak: 0, lastDailyWonDate: null,
     });
   });
 
@@ -224,7 +226,7 @@ describe('repository w5 — round-trip', () => {
   it('saveW5Stats / loadW5Stats — round-trip', async () => {
     const store = memoryBackend();
     const repo = createRepository(store);
-    const stats = { dailyPlayed: 3, dailyWins: 2, endlessPlayed: 10, endlessWins: 7, bestGuess: 2 };
+    const stats = { dailyPlayed: 3, dailyWins: 2, endlessPlayed: 10, endlessWins: 7, bestGuess: 2, w5_dailyStreak: 3, w5_maxDailyStreak: 5, lastDailyWonDate: '2026-06-18' };
     await repo.saveW5Stats(stats);
     const loaded = await repo.loadW5Stats();
     expect(loaded).toEqual(stats);
@@ -240,7 +242,7 @@ describe('repository w5 — round-trip', () => {
     const store = memoryBackend();
     const repo = createRepository(store);
     await repo.saveW5Daily({ dateKey: 1, guesses: [], status: 'playing' });
-    await repo.saveW5Stats({ dailyPlayed: 5, dailyWins: 2, endlessPlayed: 0, endlessWins: 0, bestGuess: 3 });
+    await repo.saveW5Stats({ dailyPlayed: 5, dailyWins: 2, endlessPlayed: 0, endlessWins: 0, bestGuess: 3, w5_dailyStreak: 0, w5_maxDailyStreak: 0, lastDailyWonDate: null });
     await repo.resetState();
     expect(await repo.loadW5Daily()).toBeNull();
     expect(await repo.loadW5Stats()).toBeNull();
@@ -293,10 +295,41 @@ describe('ГАРД: reject getItem → saveX дефолтом НЕ вызван'
     }
 
     if (loadOkRef.current) {
-      await repo.saveW5Stats({ dailyPlayed: 0, dailyWins: 0, endlessPlayed: 0, endlessWins: 0, bestGuess: 0 });
+      await repo.saveW5Stats({ dailyPlayed: 0, dailyWins: 0, endlessPlayed: 0, endlessWins: 0, bestGuess: 0, w5_dailyStreak: 0, w5_maxDailyStreak: 0, lastDailyWonDate: null });
     }
 
     expect(mockStore.setItem).not.toHaveBeenCalled();
+  });
+});
+
+// ---- Нормализация stats (новые поля стрика) -----------------------------------
+
+describe('normalizeW5Stats — новые поля стрика', () => {
+  it('null → нули и null для lastDailyWonDate', () => {
+    const s = normalizeW5Stats(null);
+    expect(s.w5_dailyStreak).toBe(0);
+    expect(s.w5_maxDailyStreak).toBe(0);
+    expect(s.lastDailyWonDate).toBeNull();
+  });
+
+  it('частичные данные без стрика → нули', () => {
+    const s = normalizeW5Stats({ dailyPlayed: 5 });
+    expect(s.w5_dailyStreak).toBe(0);
+    expect(s.w5_maxDailyStreak).toBe(0);
+    expect(s.lastDailyWonDate).toBeNull();
+  });
+
+  it('полные данные со стриком — round-trip', () => {
+    const s = normalizeW5Stats({ dailyPlayed: 3, dailyWins: 2, endlessPlayed: 0, endlessWins: 0, bestGuess: 3, w5_dailyStreak: 4, w5_maxDailyStreak: 7, lastDailyWonDate: '2026-06-18' });
+    expect(s.w5_dailyStreak).toBe(4);
+    expect(s.w5_maxDailyStreak).toBe(7);
+    expect(s.lastDailyWonDate).toBe('2026-06-18');
+  });
+
+  it('отрицательные стрики → 0', () => {
+    const s = normalizeW5Stats({ w5_dailyStreak: -1, w5_maxDailyStreak: -5 });
+    expect(s.w5_dailyStreak).toBe(0);
+    expect(s.w5_maxDailyStreak).toBe(0);
   });
 });
 

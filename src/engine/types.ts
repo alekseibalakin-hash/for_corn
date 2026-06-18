@@ -68,9 +68,13 @@ export interface Progress extends Partial<GlobalStats> {
   completed: string[];
   /** id challenge -> epoch ms, когда кулдаун истекает. */
   challengeCooldowns: Record<string, number>;
-  /** Сколько купонов-от-challenge выдано сегодня. */
+  /** @deprecated Больше не обновляется. Хранится для обратной совместимости сохранённых данных. */
   challengeCouponsToday: number;
-  /** Локальная дата (YYYY-MM-DD), к которой относится счётчик. Сброс в полночь. */
+  /** Лёгкие купоны (small/medium без rewardId) — суммарно выдано сегодня по всему хабу. */
+  easyCouponsTotalToday: number;
+  /** Лёгкие купоны — выдано сегодня по каждой игре. */
+  easyCouponsByGameToday: Record<string, number>;
+  /** Локальная дата (YYYY-MM-DD), к которой относятся счётчики. Сброс в полночь. */
   couponDayDate: string;
   /** Онбординг показан (один раз при первом запуске). */
   onboardingSeen?: boolean;

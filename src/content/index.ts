@@ -36,9 +36,18 @@ export function spicyBandForLevel(level: number): SpicyBand {
 const rewardsById = new Map<string, Reward>();
 const rewardsByTierMap = new Map<Tier, Reward[]>(TIERS.map((t) => [t, []]));
 
+// Именные награды (ach.rewardId) исключаются из случайного тир-пула: иначе 12+ large-ачивок
+// могут случайно выкатить «restaurant»/«fine-dining», и дедуп тихо подавит эмоциональную
+// именную веху (DESIGN §15 + adversarial review A4).
+const reservedRewardIds = new Set<string>(
+  achievementsConfig.achievements.filter((a) => a.rewardId).map((a) => a.rewardId!),
+);
+
 for (const reward of rewardsConfig.rewards) {
   rewardsById.set(reward.id, reward);
-  rewardsByTierMap.get(reward.tier)?.push(reward);
+  if (!reservedRewardIds.has(reward.id)) {
+    rewardsByTierMap.get(reward.tier)?.push(reward);
+  }
 }
 
 export function rewardById(id: string): Reward | undefined {
@@ -60,6 +69,8 @@ export function shelfLifeDaysFor(reward: Reward): number {
 
 export const achievements: Achievement[] = achievementsConfig.achievements;
 export const maxChallengeCouponsPerDay = achievementsConfig.limits.maxChallengeCouponsPerDay;
+export const maxEasyPerGamePerDay = achievementsConfig.limits.maxEasyPerGamePerDay;
+export const maxEasyPerDayTotal = achievementsConfig.limits.maxEasyPerDayTotal;
 
 /**
  * Валидация целостности контента. Вызывается на старте приложения и в тестах:
@@ -86,9 +97,21 @@ export function validateContent(): string[] {
   }
 
   const seenAch = new Set<string>();
+  const rewardIdFirstUser = new Map<string, string>(); // rewardId → первая ачивка
   for (const ach of achievements) {
     if (seenAch.has(ach.id)) problems.push(`дубль achievementId: ${ach.id}`);
     seenAch.add(ach.id);
+
+    if (ach.rewardId) {
+      const first = rewardIdFirstUser.get(ach.rewardId);
+      if (first) {
+        // НЕ throw — подарок не должен падать. Но это значит: пока live-купон одной ачивки,
+        // другая с тем же rewardId не выдастся (движок achievements.ts это гейтит).
+        problems.push(`[warn] ачивки ${first} и ${ach.id} используют один rewardId «${ach.rewardId}» — при живом купоне второй купон не выдастся`);
+      } else {
+        rewardIdFirstUser.set(ach.rewardId, ach.id);
+      }
+    }
 
     if (!ach.rewardTier && !ach.rewardId) {
       problems.push(`achievement ${ach.id}: нет ни rewardTier, ни rewardId`);
@@ -103,6 +126,16 @@ export function validateContent(): string[] {
       problems.push(`challenge ${ach.id}: нужен неотрицательный cooldownDays`);
     }
     problems.push(...validateTrigger(ach.trigger, ach.id));
+  }
+
+  // Belt-and-suspenders: именная награда не должна быть в случайном тир-пуле (A4).
+  for (const ach of achievements) {
+    if (ach.rewardId) {
+      const reward = rewardsById.get(ach.rewardId);
+      if (reward && rewardsByTier(reward.tier).some((r) => r.id === ach.rewardId)) {
+        problems.push(`[warn] именная награда «${ach.rewardId}» (ачивка ${ach.id}) попала в случайный пул тира ${reward.tier} — баг в reservedRewardIds`);
+      }
+    }
   }
 
   problems.push(...validateSpicyBands());
@@ -129,6 +162,7 @@ function validateSpicyBands(): string[] {
     if (b.iceMin < 1 || b.iceMax < b.iceMin) problems.push(`spicy band ${i}: некорректный диапазон льда`);
     if (b.blocksMin < 0 || b.blocksMax < b.blocksMin) problems.push(`spicy band ${i}: некорректный диапазон блоков`);
     if (b.budgetMultiplier <= 1) problems.push(`spicy band ${i}: budgetMultiplier должен быть > 1`);
+    if (b.budgetK !== undefined && b.budgetK <= 0) problems.push(`spicy band ${i}: budgetK должен быть > 0`);
     if (b.clusterChance < 0 || b.clusterChance > 1) problems.push(`spicy band ${i}: clusterChance вне [0,1]`);
     if (b.iceMax > SPICY_ICE_CEILING) problems.push(`spicy band ${i}: iceMax > потолка честности ${SPICY_ICE_CEILING}`);
     if (b.blocksMax > SPICY_BLOCK_CEILING) problems.push(`spicy band ${i}: blocksMax > потолка честности ${SPICY_BLOCK_CEILING}`);

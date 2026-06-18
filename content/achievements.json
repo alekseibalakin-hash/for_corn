@@ -1,7 +1,9 @@
 {
   "_comment": "Правила выдачи купонов. trigger — условие над stats (DESIGN §4-5). Награда: rewardTier (случайный из тира) ИЛИ rewardId. type (milestone|challenge) — тип триггера; ЖИЗНЕННЫЙ ЦИКЛ ЕДИНЫЙ (DESIGN §15): задание завершается навсегда при ИСПОЛЬЗОВАНИИ купона (больше не выпадает); если купон сгорел — задание снова доступно. Необязательное note — личное слово на раскрытии. limits.maxChallengeCouponsPerDay — темп-ограничитель на купоны-от-challenge в сутки. Пороги — ручка настройки, правятся без кода.",
   "limits": {
-    "maxChallengeCouponsPerDay": 3
+    "maxChallengeCouponsPerDay": 3,
+    "maxEasyPerGamePerDay": 3,
+    "maxEasyPerDayTotal": 5
   },
   "achievements": [
     {
@@ -253,6 +255,13 @@
     {"id":"m3-spicy-8","type":"milestone","game":"m3","title":"Глубокая разморозка","description":"Дойди до глубины 8 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":8},"rewardTier":"medium"},
     {"id":"m3-spicy-12","type":"milestone","game":"m3","title":"Ледоруб","description":"Дойди до глубины 12 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":12},"rewardTier":"large"},
     {"id":"m3-spicy-18","type":"milestone","game":"m3","title":"Покорительница льдов","description":"Дойди до глубины 18 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":18},"rewardTier":"large"},
-    {"id":"m3-spicy-25","type":"milestone","game":"m3","title":"Вершина перчинки 🌶️🏔️","description":"Дойди до глубины 25 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":25},"rewardId":"restaurant","note":"Ты покорила и эту вершину. Горжусь тобой бесконечно ❤️"}
+    {"id":"m3-spicy-25","type":"milestone","game":"m3","title":"Вершина перчинки 🌶️🏔️","description":"Дойди до глубины 25 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":25},"rewardId":"fine-dining","note":"Ты покорила и эту вершину. Горжусь тобой бесконечно ❤️"},
+
+    {"id":"w5-welcome","type":"milestone","game":"w5","title":"Первое слово 🔤","description":"Угадай слово в ежедневной игре","trigger":{"stat":"w5_dailyWins","op":">=","value":1},"rewardTier":"small","note":"Первое угаданное слово — только начало ❤️"},
+    {"id":"w5-wins-5","type":"milestone","game":"w5","title":"Пять разгадок","description":"Угадай 5 ежедневных слов","trigger":{"stat":"w5_dailyWins","op":">=","value":5},"rewardTier":"small"},
+    {"id":"w5-wins-20","type":"milestone","game":"w5","title":"Знаток слов","description":"Угадай 20 ежедневных слов","trigger":{"stat":"w5_dailyWins","op":">=","value":20},"rewardTier":"medium"},
+    {"id":"w5-streak-3","type":"milestone","game":"w5","title":"Три дня подряд","description":"Угадывай ежедневное слово три дня подряд","trigger":{"stat":"w5_maxDailyStreak","op":">=","value":3},"rewardTier":"small"},
+    {"id":"w5-streak-7","type":"milestone","game":"w5","title":"Неделя слов 💕","description":"Угадывай ежедневное слово семь дней подряд","trigger":{"stat":"w5_maxDailyStreak","op":">=","value":7},"rewardTier":"medium","note":"Семь дней любви к словам — это про тебя 💕"},
+    {"id":"w5-sharp","type":"milestone","game":"w5","title":"Остроумная","description":"Угадай слово с трёх попыток или меньше","trigger":{"allOf":[{"stat":"w5_bestGuess","op":">=","value":1},{"stat":"w5_bestGuess","op":"<=","value":3}]},"rewardTier":"medium"}
   ]
 }

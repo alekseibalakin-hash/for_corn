@@ -63,6 +63,8 @@ export function defaultProgress(today: string): Progress {
     completed: [],
     challengeCooldowns: {},
     challengeCouponsToday: 0,
+    easyCouponsTotalToday: 0,
+    easyCouponsByGameToday: {},
     couponDayDate: today,
     onboardingSeen: false,
     victorySeenForCount: undefined,
@@ -82,6 +84,11 @@ export function normalizeProgress(raw: Partial<Progress> | null | undefined, tod
     challengeCooldowns:
       raw.challengeCooldowns && typeof raw.challengeCooldowns === 'object' ? raw.challengeCooldowns : {},
     challengeCouponsToday: typeof raw.challengeCouponsToday === 'number' ? raw.challengeCouponsToday : 0,
+    easyCouponsTotalToday: typeof raw.easyCouponsTotalToday === 'number' ? raw.easyCouponsTotalToday : 0,
+    easyCouponsByGameToday:
+      raw.easyCouponsByGameToday && typeof raw.easyCouponsByGameToday === 'object' && !Array.isArray(raw.easyCouponsByGameToday)
+        ? (raw.easyCouponsByGameToday as Record<string, number>)
+        : {},
     couponDayDate: typeof raw.couponDayDate === 'string' ? raw.couponDayDate : today,
     onboardingSeen: raw.onboardingSeen === true,
     victorySeenForCount: typeof raw.victorySeenForCount === 'number' ? raw.victorySeenForCount : undefined,
