@@ -3,8 +3,10 @@
 // спецфишки: линия (4-в-ряд), цветобомба (5), бомба (форма L/T). Спецы активируются, когда
 // попадают в совпадение или ими свопнули, и цепляют другие спецы (цепная активация).
 
-/** Источник случайности — инъектируется ради детерминированных тестов (как в 2048). */
-export type Rng = () => number;
+import { mulberry32 } from '../../engine/rng';
+import type { Rng } from '../../engine/rng';
+export { mulberry32 };
+export type { Rng };
 
 export const SIZE = 8;
 export const TYPE_COUNT = 6;
@@ -121,18 +123,6 @@ export function normalizeObstacles(raw: unknown): Obstacles {
     }
   }
   return ob;
-}
-
-// ---- Детерминированный ГПСЧ (mulberry32) для тестов: одинаковый seed → одинаковое поле. ----
-export function mulberry32(seed: number): Rng {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 /**

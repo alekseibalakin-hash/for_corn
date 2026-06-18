@@ -9,7 +9,7 @@ import {
   WORD_LEN,
   type LetterStatus,
 } from './wordle.types';
-import { ANSWERS, getDailyWord, isAllowedWord } from './useWordle';
+import { ANSWERS, SHUFFLED_ANSWERS, getDailyWord, isAllowedWord } from './useWordle';
 import { memoryBackend } from '../../storage/backends';
 import { createRepository } from '../../storage/repository';
 
@@ -108,20 +108,24 @@ describe('normalizeW5 — Ё→Е', () => {
 // ---- Daily детерминизм (§3) -----------------------------------------------
 
 describe('getDailyWord — daily детерминизм', () => {
-  it('одна дата → одно слово', () => {
-    // Вычисляем dateKey для конкретной UTC-даты (игнорируем timezone в тесте — важна детерминированность).
+  it('одна дата → одно слово (из SHUFFLED_ANSWERS)', () => {
     const key = getDateKey();
-    const word = ANSWERS[key % ANSWERS.length];
+    const word = SHUFFLED_ANSWERS[key % SHUFFLED_ANSWERS.length];
     expect(getDailyWord()).toBe(word);
   });
 
-  it('разные dateKey → (в общем) разные слова', () => {
-    // Проверяем что формула key%length распределяет по всему массиву
-    const keys = [0, 1, 100, 1000, 3726];
-    const words = keys.map((k) => ANSWERS[k % ANSWERS.length]);
-    // Не обязательно все уникальны (цикличность), но хотя бы не все одинаковы
-    const unique = new Set(words);
-    expect(unique.size).toBeGreaterThan(1);
+  it('соседние dateKey → НЕ соседние по алфавиту слова (скремблировано)', () => {
+    // Если бы список шёл по алфавиту, 5 соседних ключей дали бы 5 соседних слов.
+    // После shuffle они должны быть вперемешку.
+    const words = [100, 101, 102, 103, 104].map((k) => SHUFFLED_ANSWERS[k % SHUFFLED_ANSWERS.length]);
+    const sorted = [...words].sort();
+    expect(words).not.toEqual(sorted);
+  });
+
+  it('полный цикл SHUFFLED_ANSWERS: нет повторов за N дней', () => {
+    const N = SHUFFLED_ANSWERS.length;
+    const words = Array.from({ length: N }, (_, i) => SHUFFLED_ANSWERS[i % N]);
+    expect(new Set(words).size).toBe(N);
   });
 
   it('ANSWERS содержит только 5-буквенные кириллические слова без ё', () => {

@@ -15,11 +15,18 @@ import {
   type W5DailyState,
   type W5Stats,
 } from './wordle.types';
+import { mulberry32, seededShuffle } from '../../engine/rng';
 import answersRaw from '../../../content/wordle/answers.json';
 import allowedRaw from '../../../content/wordle/allowed.json';
 
 export const ANSWERS: readonly string[] = answersRaw as string[];
 const ALLOWED_SET = new Set<string>(allowedRaw as string[]);
+
+// Фикс-сид: перемешиваем список один раз при загрузке модуля.
+// Одинаковый сид на всех устройствах → слово дня одинаково для всех.
+// Полный цикл без повторов = ANSWERS.length дней.
+const DAILY_SEED = 0x9e3779b1;
+export const SHUFFLED_ANSWERS: readonly string[] = seededShuffle(ANSWERS, mulberry32(DAILY_SEED));
 
 // Полное время раскрытия одной строки: последний тайл стартует в (WORD_LEN-1)*300, флип 300мс
 const REVEAL_TOTAL_MS = (WORD_LEN - 1) * REVEAL_PER_TILE_MS + 350;
@@ -29,7 +36,7 @@ export function isAllowedWord(word: string): boolean {
 }
 
 export function getDailyWord(): string {
-  return ANSWERS[getDateKey() % ANSWERS.length];
+  return SHUFFLED_ANSWERS[getDateKey() % SHUFFLED_ANSWERS.length];
 }
 
 export function getRandomWord(): string {
