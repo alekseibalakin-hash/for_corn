@@ -6,18 +6,36 @@ import {
   activateInPlace,
   applySwap,
   createBoard,
+  createRoomBoard,
+  emptyObstacles,
   findAnyMove,
+  findIcePreferredMove,
   hasAnyMove,
+  isEmptyObstacles,
+  isStatic,
   isValidSwap,
+  makeStream,
+  mulberry32,
+  normalizeObstacles,
   reshuffle,
   resolveSwap,
   SIZE,
   type Board,
   type CascadeStep,
   type Coord,
+  type Obstacles,
   type ResolveResult,
   type Rng,
+  type RoomLayout,
+  type SeededStream,
 } from './logic';
+import {
+  generateLevel,
+  normalizeSpicy,
+  type SpicyGoal,
+  type SpicyLevel,
+  type SpicyLevelState,
+} from './levels';
 import {
   buildM3Snapshot,
   commitM3Game,
@@ -29,9 +47,30 @@ import {
   type M3CurrentGame,
 } from './stats';
 import { applyStep, boardToGems, swapGems, type VisualGem } from './gems';
+import type { PersistedMatch3 } from '../../storage/repository';
 
 const GAME_ID = 'm3';
 const rng: Rng = Math.random;
+
+/** Режим игры: 🌿 лайт (бесконечный relax, как было) | 🌶️ «с перчинкой» (поуровневый). */
+export type Match3Mode = 'light' | 'spicy';
+
+/** Снимок незаконченного уровня из сгенерированного уровня (полный бюджет, нулевой прогресс/поток). */
+function spicyStateFromLevel(lvl: SpicyLevel): SpicyLevelState {
+  return {
+    level: lvl.level,
+    seed: lvl.seed,
+    movesLeft: lvl.movesBudget,
+    goal: lvl.goal,
+    progress: 0,
+    streamPos: 0,
+    board: lvl.board,
+    obstacles: lvl.obstacles,
+  };
+}
+
+/** Случайный seed генерации уровня (сам сгенерированный уровень детерминирован своим seed — задача №0). */
+const freshSeed = (): number => (Math.random() * 0x7fffffff) >>> 0;
 
 // Тайминги анимации хода (мс): своп (слайд) → взрыв-искры → оседание (layout-spring), по каскаду.
 // SETTLE ≈ время осёдки spring stiffness700/damping42 — короче → следующий шаг стартует посреди
@@ -46,6 +85,33 @@ const HINT_IDLE_MS = 5000;
 // Праздник: если за ОДИН шаг хода убрано столько фишек — конфетти + вспышка поля (не на каждом ходу).
 const BIG_CLEAR = 20;
 
+// ---- ДЕМО-КОМНАТА (Фаза 1, бриф §8): за ?room=demo показываем пару блоков + замороженные фишки,
+// чтобы глазами увидеть сегментную гравитацию и оттаивание на боевом URL. Демо ЭФЕМЕРНО: НЕ грузит и
+// НЕ перезаписывает партию жены/мужа (persist выключен), не выдаёт награды. Эндлесс (?-less) не тронут. ----
+const DEMO_LAYOUT: RoomLayout = {
+  blocks: [
+    { r: 4, c: 3 },
+    { r: 4, c: 4 },
+  ],
+  ice: [
+    { r: 2, c: 2 },
+    { r: 2, c: 5 },
+    { r: 5, c: 3 },
+    { r: 5, c: 4 },
+    { r: 6, c: 1 },
+  ],
+};
+const DEMO_SEED = 20260617;
+
+function getRoomParam(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return new URLSearchParams(window.location.search).get('room');
+  } catch {
+    return null;
+  }
+}
+
 /** Активный визуальный эффект хода (для подсветки/взрывов в Match3.tsx). */
 export interface M3Fx {
   cleared: Coord[];
@@ -58,15 +124,20 @@ export interface M3Fx {
  * на каждом ходе/смене партии зовём `rewards.grant('m3', снапшот, prevСнапшот)`. РАССЛАБЛЕННЫЙ
  * endless: проигрыша нет; если ходов не осталось — reshuffle.
  */
-export function useMatch3() {
+export function useMatch3(mode: Match3Mode = 'light') {
   const rewards = useRewards();
   const repo = rewards.repo;
+
+  // Демо-комната активна только при ?room=demo — стабильно на весь маунт.
+  const demoMode = useRef(getRoomParam() === 'demo').current;
 
   const [loading, setLoading] = useState(true);
   const [board, setBoardState] = useState<Board>([]);
   // Визуальный слой со стабильными id (gems.ts) — держим ПАРАЛЛЕЛЬНО plain-полю `board`:
   // gems рисуют падение (layout по id), а board остаётся для logic/тача/handleTap и персиста.
   const [gems, setGemsState] = useState<VisualGem[]>([]);
+  // Препятствия (overlay-слои; бриф §1). Эндлесс ⇒ всегда пусты ⇒ поведение байт-в-байт прежнее.
+  const [obstacles, setObstaclesState] = useState<Obstacles>(emptyObstacles);
   const [game, setGameState] = useState<M3CurrentGame>(defaultM3Game);
   const [stats, setStatsState] = useState<M3CumulativeStats>(defaultM3Stats);
   const [busy, setBusyState] = useState(false); // идёт анимация хода — вход заблокирован
@@ -77,9 +148,20 @@ export function useMatch3() {
   // Счётчик «праздников»: каждый крупный клир ++ — UI проигрывает вспышку поля по смене значения.
   const [flash, setFlash] = useState(0);
 
+  // ---- Состояние режима «с перчинкой» (бриф spicy §1). Лайт держит константные дефолты ⇒ его
+  // рендер/поведение не меняется. Вся спайси-логика — за ветками `if (mode === 'spicy')`. ----
+  const [level, setLevelState] = useState(0);
+  const [movesLeft, setMovesLeftState] = useState(0);
+  const [goal, setGoalState] = useState<SpicyGoal | null>(null);
+  const [goalProgress, setGoalProgressState] = useState(0);
+  const [status, setStatusState] = useState<'playing' | 'won' | 'lost'>('playing');
+  // Незаконченный уровень при входе → диалог «Продолжить / Заново» (null = выбора нет).
+  const [resumeChoice, setResumeChoiceState] = useState<SpicyLevelState | null>(null);
+
   // Зеркала для синхронного чтения в обработчиках (как в useGame2048).
   const boardRef = useRef(board);
   const gemsRef = useRef(gems);
+  const obstaclesRef = useRef(obstacles);
   const gameRef = useRef(game);
   const statsRef = useRef(stats);
   const busyRef = useRef(busy);
@@ -89,10 +171,45 @@ export function useMatch3() {
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setBoard = (v: Board) => ((boardRef.current = v), setBoardState(v));
   const setGems = (v: VisualGem[]) => ((gemsRef.current = v), setGemsState(v));
+  // Обновляем obstacles только при реальной смене ref (эндлесс держит один пустой ref ⇒ без ре-рендеров).
+  const setObstacles = (v: Obstacles) => {
+    obstaclesRef.current = v;
+    setObstaclesState(v);
+  };
   const setGame = (v: M3CurrentGame) => ((gameRef.current = v), setGameState(v));
   const setStats = (v: M3CumulativeStats) => ((statsRef.current = v), setStatsState(v));
   const setBusy = (v: boolean) => ((busyRef.current = v), setBusyState(v));
   const setHint = (v: [Coord, Coord] | null) => ((hintRef.current = v), setHintState(v));
+
+  // ---- Зеркала и рефы режима «с перчинкой» ----
+  const levelRef = useRef(level);
+  const movesLeftRef = useRef(movesLeft);
+  const goalRef = useRef(goal);
+  const goalProgressRef = useRef(goalProgress);
+  const statusRef = useRef(status);
+  const resumeChoiceRef = useRef(resumeChoice);
+  const setLevel = (v: number) => ((levelRef.current = v), setLevelState(v));
+  const setMovesLeft = (v: number) => ((movesLeftRef.current = v), setMovesLeftState(v));
+  const setGoal = (v: SpicyGoal | null) => ((goalRef.current = v), setGoalState(v));
+  const setGoalProgress = (v: number) => ((goalProgressRef.current = v), setGoalProgressState(v));
+  const setStatus = (v: 'playing' | 'won' | 'lost') => ((statusRef.current = v), setStatusState(v));
+  const setResumeChoice = (v: SpicyLevelState | null) => ((resumeChoiceRef.current = v), setResumeChoiceState(v));
+  // Play-поток уровня (mulberry32 c курсором): резюм продолжает ТОТ ЖЕ поток (задача №0). seedRef — его seed.
+  const seedRef = useRef(0);
+  const streamRef = useRef<SeededStream | null>(null);
+  // Подготовленный ретрай при проигрыше (тот же уровень, новый seed, полный бюджет) — для retryLevel/персиста.
+  const pendingRetryRef = useRef<SpicyLevel | null>(null);
+  // Dual-slot персист (бриф §5): эхо ЧУЖОГО слота, чтобы не затереть его (coalescingStore last-write-wins).
+  // spicy-маунт эхрит лайт-слот {board,game,obstacles}; лайт-маунт эхрит spicy-слот.
+  const echoLightRef = useRef<Pick<PersistedMatch3, 'board' | 'game' | 'obstacles'> | null>(null);
+  const echoSpicyRef = useRef<SpicyLevelState | null>(null);
+  // Если mount-загрузка board/stats упала — НЕ пишем ничего (риск стереть реальные данные дефолтом).
+  // Общий флаг для обоих режимов: false при ЛЮБОМ mount-сбое чтения board или stats.
+  const persistOkRef = useRef(true);
+  // Текущий play-rng: спайси-поток (если есть) или Math.random (лайт — байт-в-байт прежнее поведение).
+  const moveRng = (): Rng => (mode === 'spicy' ? streamRef.current?.rng ?? rng : rng);
+  // Спайси-ввод заблокирован, пока показан оверлей победы/поражения/выбора резюма.
+  const spicyInputBlocked = (): boolean => mode === 'spicy' && (statusRef.current !== 'playing' || !!resumeChoiceRef.current);
 
   const after = useCallback((ms: number, fn: () => void) => {
     const id = setTimeout(() => {
@@ -117,7 +234,12 @@ export function useMatch3() {
     idleTimerRef.current = setTimeout(() => {
       idleTimerRef.current = null;
       if (!aliveRef.current || busyRef.current) return;
-      const move = findAnyMove(boardRef.current);
+      if (spicyInputBlocked()) return; // не пульсируем подсказку под оверлеем победы/поражения/резюма
+      // Спайси: подсказка предпочитает своп, смежный со льдом (прогресс цели), лайт — любой валидный.
+      // Room-aware в обоих случаях (isValidSwap учитывает ob). Эндлесс: ob пуст ⇒ findAnyMove прежний.
+      const move = mode === 'spicy'
+        ? findIcePreferredMove(boardRef.current, obstaclesRef.current)
+        : findAnyMove(boardRef.current, obstaclesRef.current);
       if (move) setHint(move);
     }, HINT_IDLE_MS);
   }, [clearIdleTimer]);
@@ -128,30 +250,172 @@ export function useMatch3() {
     else scheduleHint();
   }, [clearIdleTimer, scheduleHint]);
 
+  // Текущий снимок незаконченного спайси-уровня (или null = «нет незаконченного»: победа/нет цели).
+  // На проигрыше — снимок ПОДГОТОВЛЕННОГО ретрая (тот же level, новый seed, полный бюджет), а не
+  // проигранной доски (бриф §5: проигрыш не оставлять как «продолжить»).
+  const currentSpicyState = useCallback((): SpicyLevelState | null => {
+    const st = statusRef.current;
+    if (st === 'won') return null;
+    if (st === 'lost') return pendingRetryRef.current ? spicyStateFromLevel(pendingRetryRef.current) : null;
+    const g = goalRef.current;
+    if (!g) return null;
+    return {
+      level: levelRef.current,
+      seed: seedRef.current,
+      movesLeft: movesLeftRef.current,
+      goal: g,
+      progress: goalProgressRef.current,
+      streamPos: streamRef.current ? streamRef.current.pos() : 0,
+      board: boardRef.current,
+      obstacles: obstaclesRef.current,
+    };
+  }, []);
+
   const persistBoard = useCallback(() => {
-    void repo
-      .saveMatch3Board({ board: boardRef.current, game: gameRef.current })
-      .catch((err) => console.warn('[m3] не удалось сохранить «match3.board»:', err));
-  }, [repo]);
+    if (demoMode) return; // демо эфемерно — не перезаписываем реальную партию
+    if (!persistOkRef.current) return; // mount-load упал — не рискуем затереть реальные данные
+    if (mode === 'spicy') {
+      // Склейка: лайт-слот (echo, неизменный за этот маунт) + наш spicy-слот. ПОЛНЫЙ объект —
+      // иначе coalescingStore last-write-wins сотрёт лайт-резюм жены (бриф §5).
+      const top = echoLightRef.current;
+      const payload: PersistedMatch3 = { ...(top ?? {}), spicy: currentSpicyState() };
+      void repo.saveMatch3Board(payload).catch((err) => console.warn('[m3] не удалось сохранить «match3.board» (перчинка):', err));
+      return;
+    }
+    const ob = obstaclesRef.current;
+    // obstacles пишем ТОЛЬКО когда они есть: эндлесс-blob жены остаётся байт-в-байт прежним (бриф §5).
+    const base = isEmptyObstacles(ob)
+      ? { board: boardRef.current, game: gameRef.current }
+      : { board: boardRef.current, game: gameRef.current, obstacles: ob };
+    // Эхо чужого (spicy) слота, если он был при загрузке — чтобы не потерять незаконченную перчинку.
+    // Нет спайси-слота ⇒ payload === base (байт-в-байт прежний лайт-формат; ключа spicy нет).
+    const payload: PersistedMatch3 = echoSpicyRef.current ? { ...base, spicy: echoSpicyRef.current } : base;
+    void repo.saveMatch3Board(payload).catch((err) => console.warn('[m3] не удалось сохранить «match3.board»:', err));
+  }, [repo, demoMode, mode, currentSpicyState]);
   const persistStats = useCallback(() => {
+    if (demoMode) return;
+    // mount-load упал (persistOkRef=false) — не перезаписываем реальные статы нулями ни в одном режиме.
+    if (!persistOkRef.current) return;
     void repo
       .saveMatch3Stats(statsRef.current)
       .catch((err) => console.warn('[m3] не удалось сохранить «match3.stats»:', err));
-  }, [repo]);
+  }, [repo, demoMode, mode]);
+
+  // ---- Применить состояние уровня «с перчинкой» к полю (старт/резюм). Восстанавливает play-поток
+  // на нужной позиции (резюм продолжает ТОТ ЖЕ поток — задача №0). ----
+  const applyState = useCallback((st: SpicyLevelState) => {
+    seedRef.current = st.seed;
+    streamRef.current = makeStream(st.seed, st.streamPos);
+    setLevel(st.level);
+    setMovesLeft(st.movesLeft);
+    setGoal(st.goal);
+    setGoalProgress(st.progress);
+    setObstacles(st.obstacles);
+    setBoard(st.board);
+    setGems(boardToGems(st.board, st.obstacles));
+    setFx(null);
+    setHint(null);
+    setBusy(false);
+    setStatus('playing');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Сгенерировать и запустить свежий уровень N. Гасит in-flight таймеры прошлого уровня (бриф §4). */
+  const startSpicyLevel = useCallback(
+    (levelNum: number) => {
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+      clearIdleTimer();
+      pendingRetryRef.current = null;
+      const lvl = generateLevel(Math.max(1, levelNum), freshSeed());
+      applyState(spicyStateFromLevel(lvl));
+    },
+    [applyState, clearIdleTimer],
+  );
 
   // ---- Загрузка партии. После boot наградного слоя (Shell гейтит на rewards.loading).
   // Награды тут НЕ оцениваем (как 2048): вехи срабатывают на первом ходе. ----
   useEffect(() => {
     aliveRef.current = true;
     let cancelled = false;
+
+    // ---- РЕЖИМ «С ПЕРЧИНКОЙ»: ранний выход (бриф §1). Грузим maxSpicyLevel (глубину) + незаконченный
+    // уровень из .spicy; эхо лайт-слота — для безопасной склейки персиста. Лайт-ветка ниже НЕ выполняется. ----
+    if (mode === 'spicy') {
+      (async () => {
+        try {
+          const [boardP, statsP] = await Promise.all([repo.loadMatch3Board(), repo.loadMatch3Stats()]);
+          if (cancelled) return;
+          const loadedStats = normalizeM3Stats(statsP);
+          setStats(loadedStats);
+          // Эхо лайт-слота (bytes как есть) для склейки при персисте; нет валидной board ⇒ лайт-слота нет.
+          echoLightRef.current =
+            boardP && Array.isArray(boardP.board) && boardP.board.length > 0
+              ? { board: boardP.board, game: boardP.game, obstacles: boardP.obstacles }
+              : null;
+          persistOkRef.current = true;
+          const saved = normalizeSpicy(boardP?.spicy);
+          if (saved) {
+            applyState(saved); // рендерим сохранённый уровень ПОД диалогом резюма
+            setResumeChoice(saved); // «Продолжить уровень N / Начать заново»
+          } else {
+            startSpicyLevel(loadedStats.maxSpicyLevel + 1); // первый непройденный уровень
+          }
+          setLoading(false);
+          scheduleHint();
+        } catch (err) {
+          if (cancelled) return;
+          console.warn('[m3] загрузка «перчинки» не удалась, старт с чистого листа:', err);
+          persistOkRef.current = false; // mount-load упал ⇒ НЕ пишем (не рискуем затереть лайт-данные)
+          echoLightRef.current = null;
+          setStats(defaultM3Stats());
+          startSpicyLevel(1);
+          setLoading(false);
+          scheduleHint();
+        }
+      })();
+      return () => {
+        cancelled = true;
+        aliveRef.current = false;
+        timersRef.current.forEach(clearTimeout);
+        timersRef.current = [];
+        clearIdleTimer();
+      };
+    }
+
+    // ДЕМО (?room=demo): эфемерная комната с фикс-seed — НЕ грузим/НЕ перезаписываем реальную партию.
+    if (demoMode) {
+      const { board: demoBoard, obstacles: demoOb } = createRoomBoard(DEMO_LAYOUT, mulberry32(DEMO_SEED));
+      setObstacles(demoOb);
+      setBoard(demoBoard);
+      setGems(boardToGems(demoBoard, demoOb));
+      setGame(defaultM3Game());
+      setStats(defaultM3Stats());
+      setLoading(false);
+      scheduleHint();
+      return () => {
+        cancelled = true;
+        aliveRef.current = false;
+        timersRef.current.forEach(clearTimeout);
+        timersRef.current = [];
+        clearIdleTimer();
+      };
+    }
+
     (async () => {
       try {
         const [boardP, statsP] = await Promise.all([repo.loadMatch3Board(), repo.loadMatch3Stats()]);
         if (cancelled) return;
         const loadedStats = normalizeM3Stats(statsP);
+        // Эхо спайси-слота: лайт-персист его сохранит (не потеряем незаконченную перчинку). Нет/битый ⇒
+        // null ⇒ payload без ключа spicy (байт-в-байт прежний лайт-формат для blob жены без перчинки).
+        echoSpicyRef.current = normalizeSpicy(boardP?.spicy);
         if (boardP && Array.isArray(boardP.board) && boardP.board.length > 0) {
+          // Новые поля читаем через дефолт: старый board жены без obstacles ⇒ пустые слои (бриф §5).
+          const loadedOb = normalizeObstacles(boardP.obstacles);
+          setObstacles(loadedOb);
           setBoard(boardP.board);
-          setGems(boardToGems(boardP.board));
+          setGems(boardToGems(boardP.board, loadedOb));
           setGame(normalizeM3Game(boardP.game));
           setStats(loadedStats);
         } else {
@@ -169,6 +433,7 @@ export function useMatch3() {
       } catch (err) {
         if (cancelled) return;
         console.warn('[m3] загрузка партии не удалась, старт с чистого листа:', err);
+        persistOkRef.current = false; // mount-load упал ⇒ НЕ пишем (не затираем реальные данные дефолтом)
         const fresh = createBoard(rng);
         setStats({ ...defaultM3Stats(), gamesPlayed: 1 });
         setGame(defaultM3Game());
@@ -188,12 +453,73 @@ export function useMatch3() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo]);
 
+  // ---- Завершение хода «с перчинкой» (бриф §4): movesLeft--, прогресс цели, evaluateLevel→status
+  // (ПОСЛЕ busy=false). Победа → поднять maxSpicyLevel ПЕРЕД grant (иначе веха отстанет на уровень).
+  // Поражение → подготовить ретрай (тот же level, новый seed, полный бюджет). Бесконечные ретраи,
+  // глубина не теряется. Per-game вехи (m3_score/combo/…) выдаются как в лайте (edge через prevSnapshot). ----
+  const finishSpicyMove = useCallback(
+    (
+      finalBoard: Board,
+      agg: { scoreGained: number; gemsCleared: number; maxCascade: number; biggestClear: number; iceCleared: number },
+      prevSnapshot: ReturnType<typeof buildM3Snapshot>,
+      nextGame: M3CurrentGame,
+      isCombo: boolean,
+    ) => {
+      const ob = obstaclesRef.current; // лёд уже сколот этим ходом (resolveSwap вернул новый ob)
+      const g = goalRef.current;
+      const newMovesLeft = movesLeftRef.current - 1;
+      const newProgress = g ? Math.min(g.target, goalProgressRef.current + agg.iceCleared) : goalProgressRef.current;
+      const won = !!g && newProgress >= g.target; // эквивалент countIce(ob)===0 (target = стартовый лёд)
+      const lost = !won && newMovesLeft <= 0;
+
+      // m3_combos (level, вживую) + maxSpicyLevel БАМП на победе СТРОГО ПЕРЕД grant (снапшот несёт
+      // повышенное значение — иначе веха отстанет на уровень). Максимум монотонен ⇒ ретрай не растит.
+      let nextStats = isCombo ? { ...statsRef.current, combos: statsRef.current.combos + 1 } : statsRef.current;
+      if (won) nextStats = { ...nextStats, maxSpicyLevel: Math.max(nextStats.maxSpicyLevel, levelRef.current) };
+      if (isCombo || won) setStats(nextStats);
+
+      // Если уровень продолжается и ходов нет — room-aware reshuffle (не софт-локим; доброта).
+      let settled = finalBoard;
+      if (!won && !lost && !hasAnyMove(settled, ob)) {
+        settled = reshuffle(settled, moveRng(), ob);
+        setGems(boardToGems(settled, ob));
+      }
+
+      setBoard(settled);
+      setGame(nextGame);
+      setMovesLeft(newMovesLeft);
+      setGoalProgress(newProgress);
+      setFx(null);
+      setBusy(false);
+
+      // status — ПОСЛЕ busy=false (бриф §4).
+      if (won) {
+        setStatus('won');
+      } else if (lost) {
+        // Подготовить ретрай (тот же level, новый seed, полный бюджет) — персист запишет ЕГО, а не
+        // проигранную доску (бриф §5: проигрыш не оставлять как «продолжить»).
+        pendingRetryRef.current = generateLevel(levelRef.current, freshSeed());
+        setStatus('lost');
+      } else {
+        setStatus('playing');
+      }
+
+      // Выдача наград (edge через prevSnapshot, как в лайте). На победе nextStats несёт повышенный
+      // maxSpicyLevel ⇒ веха глубины срабатывает в момент прохождения порогового уровня.
+      if (!demoMode) rewards.grant(GAME_ID, buildM3Snapshot(nextStats, nextGame), prevSnapshot);
+      if (isCombo || won) persistStats(); // глубина/комбо durable (монотонно, не теряется)
+      persistBoard(); // спайси-слот: снимок уровня / null на победе / ретрай на проигрыше
+      if (!won && !lost) scheduleHint(); // под оверлеем победы/поражения подсказку НЕ считаем
+    },
+    [rewards, persistBoard, persistStats, scheduleHint, demoMode],
+  );
+
   // ---- Завершение хода: коммит per-game статов, выдача наград (edge через prevSnapshot),
   // reshuffle если ходов не осталось, персист. ----
   const finishMove = useCallback(
     (
       finalBoard: Board,
-      agg: { scoreGained: number; gemsCleared: number; maxCascade: number; biggestClear: number },
+      agg: { scoreGained: number; gemsCleared: number; maxCascade: number; biggestClear: number; iceCleared: number },
       prevSnapshot: ReturnType<typeof buildM3Snapshot>,
       isCombo: boolean,
     ) => {
@@ -206,6 +532,13 @@ export function useMatch3() {
         gemsThisGame: prevGame.gemsThisGame + agg.gemsCleared,
       };
 
+      // ---- РЕЖИМ «С ПЕРЧИНКОЙ»: ранний выход ПЕРЕД endless-reshuffle (бриф §1/§4). Лайт-хвост ниже
+      // (reshuffle/grant/persist) — текущий код буква-в-букву, выполняется только для лайта. ----
+      if (mode === 'spicy') {
+        finishSpicyMove(finalBoard, agg, prevSnapshot, nextGame, isCombo);
+        return;
+      }
+
       // Кумулятивный m3_combos (level): +1, если ход был комбо двух спецфишек (своп двух спецов).
       // Инкрементим прямо в cumulative stats (НЕ per-game) — снапшот ниже его и подхватит.
       const nextStats = isCombo ? { ...statsRef.current, combos: statsRef.current.combos + 1 } : statsRef.current;
@@ -214,10 +547,12 @@ export function useMatch3() {
       // Расслабленный endless: проигрыша нет, но если ходов не осталось — переразложить.
       // Без reshuffle gems уже совпадают с finalBoard (последний applyStep в playResolve) —
       // НЕ пере-деривим (иначе ремоунт-вспышка); reshuffle меняет поле целиком → новые gems.
+      // Room-aware: hasAnyMove/reshuffle/boardToGems учитывают obstacles (обстаклы остаются на местах).
+      const ob = obstaclesRef.current;
       let settled = finalBoard;
-      if (!hasAnyMove(settled)) {
-        settled = reshuffle(settled, rng);
-        setGems(boardToGems(settled));
+      if (!hasAnyMove(settled, ob)) {
+        settled = reshuffle(settled, rng, ob);
+        setGems(boardToGems(settled, ob));
       }
 
       setBoard(settled);
@@ -227,12 +562,13 @@ export function useMatch3() {
 
       // prevSnapshot — ДО хода: per-game вехи выдаются только при пересечении порога этим ходом
       // (резюм партии с высоким счётом не уронит купон на первом свопе — edge в achievements.ts).
-      rewards.grant(GAME_ID, buildM3Snapshot(nextStats, nextGame), prevSnapshot);
+      // В демо награды НЕ трогаем (эфемерный сэндбокс мужа).
+      if (!demoMode) rewards.grant(GAME_ID, buildM3Snapshot(nextStats, nextGame), prevSnapshot);
       persistBoard();
       if (isCombo) persistStats();
       scheduleHint(); // поле успокоилось — снова считаем простой для подсказки
     },
-    [rewards, persistBoard, persistStats, scheduleHint],
+    [rewards, persistBoard, persistStats, scheduleHint, demoMode, mode, finishSpicyMove],
   );
 
   // ---- Проигрыш разрешённого хода по шагам каскада: взрыв (FX) → оседание → следующий шаг →
@@ -244,6 +580,7 @@ export function useMatch3() {
         gemsCleared: res.gemsCleared,
         maxCascade: res.maxCascade,
         biggestClear: res.biggestClear,
+        iceCleared: res.iceCleared, // спайси: разморожено льдин за ход (лайт игнорирует — обстаклов нет)
       };
       const steps: CascadeStep[] = res.steps;
       let celebrated = false; // один праздник на ход, даже если крупных шагов несколько
@@ -266,8 +603,12 @@ export function useMatch3() {
         after(CLEAR_MS, () => {
           // board (plain) — для logic/тача; gems (id) — настоящее падение: очищенные уходят
           // (exit), выжившие слайдятся, рефилл влетает сверху. applyStep синхронен с logic.
+          // ob ДО шага (obstaclesRef) — для сегментной гравитации; затем продвигаем к ob ПОСЛЕ
+          // (st.obstacles, с уже сколотым льдом). Эндлесс: st.obstacles === тот же пустой ref ⇒ без ре-рендера.
+          const obBefore = obstaclesRef.current;
           setBoard(st.board);
-          setGems(applyStep(gemsRef.current, st));
+          setGems(applyStep(gemsRef.current, st, obBefore));
+          if (st.obstacles !== obBefore) setObstacles(st.obstacles);
           setFx(null);
           after(SETTLE_MS, () => playStep(i + 1));
         });
@@ -281,10 +622,18 @@ export function useMatch3() {
   const swap = useCallback(
     (a: Coord, b: Coord) => {
       if (loading || busyRef.current) return;
+      if (spicyInputBlocked()) return; // под оверлеем победы/поражения/резюма ввод заблокирован
       setHint(null); // действие игрока гасит подсказку
       clearIdleTimer();
       const cur = boardRef.current;
-      if (!isValidSwap(cur, a, b)) {
+      const ob = obstaclesRef.current;
+      // Обстакл (блок/лёд) не свопается: своп с ним/из него — тихий no-op (без отката-вэйгла; иначе
+      // swapGems увёл бы фишку на блок-клетку). Эндлесс ⇒ static никогда не true ⇒ ветка не достигается.
+      if (isStatic(a.r, a.c, ob) || isStatic(b.r, b.c, ob)) {
+        scheduleHint();
+        return;
+      }
+      if (!isValidSwap(cur, a, b, ob)) {
         // Откат: фишки слайдятся местами и возвращаются назад (как в матч-3 без совпадения).
         setBusy(true);
         const original = cur;
@@ -304,7 +653,8 @@ export function useMatch3() {
       const prevSnapshot = buildM3Snapshot(statsRef.current, gameRef.current);
       // Комбо двух спецфишек (своп двух спецов) → кумулятивный m3_combos +1 (см. finishMove).
       const isCombo = !!(cur[a.r]?.[a.c]?.special && cur[b.r]?.[b.c]?.special);
-      const res = resolveSwap(cur, a, b, rng);
+      // Спайси: детерминированный play-поток (резюм/реплей воспроизводимы, задача №0). Лайт: rng=Math.random.
+      const res = resolveSwap(cur, a, b, moveRng(), ob);
 
       // Слайд свопа (gems по id), затем каскады по шагам (искры → падение).
       setBoard(applySwap(cur, a, b));
@@ -320,15 +670,18 @@ export function useMatch3() {
   const activateAt = useCallback(
     (cell: Coord) => {
       if (loading || busyRef.current) return;
+      if (spicyInputBlocked()) return; // под оверлеем победы/поражения/резюма ввод заблокирован
       const cur = boardRef.current;
+      const ob = obstaclesRef.current;
       const gem = cur[cell.r]?.[cell.c];
       if (!gem?.special) return; // защита: детонировать можно только спец
+      if (isStatic(cell.r, cell.c, ob)) return; // замороженный/блок не детонирует (бриф §1)
 
       setHint(null); // действие игрока гасит подсказку
       clearIdleTimer();
       setBusy(true);
       const prevSnapshot = buildM3Snapshot(statsRef.current, gameRef.current);
-      const res = activateInPlace(cur, cell, rng);
+      const res = activateInPlace(cur, cell, moveRng(), ob); // спайси: play-поток; лайт: Math.random
 
       // Тап-детонация одного спеца — это НЕ комбо двух спецов (isCombo=false).
       // Свопа нет — поле не трогаем до первого шага; FX/оседание проигрывает playResolve.
@@ -353,29 +706,84 @@ export function useMatch3() {
 
   // ---- Новая игра ----
   const startNewGame = useCallback(() => {
+    // Перчинка: «новая игра» = свежий уровень на текущей глубине (бриф §1, startNewGame-развилка).
+    if (mode === 'spicy') {
+      startSpicyLevel(statsRef.current.maxSpicyLevel + 1);
+      setConfirmNewGame(false);
+      persistBoard();
+      scheduleHint();
+      return;
+    }
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
     clearIdleTimer();
     let nextStats = commitM3Game(statsRef.current, gameRef.current);
     nextStats = { ...nextStats, gamesPlayed: nextStats.gamesPlayed + 1 };
 
-    const fresh = createBoard(rng);
+    // Демо пересоздаёт комнату (с обстаклами); эндлесс — обычное чистое поле (obstacles пусты).
+    const { board: fresh, obstacles: freshOb } = demoMode
+      ? createRoomBoard(DEMO_LAYOUT, rng)
+      : { board: createBoard(rng), obstacles: emptyObstacles() };
     setStats(nextStats);
     setGame(defaultM3Game());
+    setObstacles(freshOb);
     setBoard(fresh);
-    setGems(boardToGems(fresh));
+    setGems(boardToGems(fresh, freshOb));
     setFx(null);
     setHint(null);
     setBusy(false);
     setConfirmNewGame(false);
 
-    rewards.sweep({ refreshReminder: true });
-    rewards.grant(GAME_ID, buildM3Snapshot(nextStats, defaultM3Game()));
+    if (!demoMode) {
+      rewards.sweep({ refreshReminder: true });
+      rewards.grant(GAME_ID, buildM3Snapshot(nextStats, defaultM3Game()));
+    }
 
     persistBoard();
     persistStats();
     scheduleHint();
-  }, [rewards, persistBoard, persistStats, clearIdleTimer, scheduleHint]);
+  }, [rewards, persistBoard, persistStats, clearIdleTimer, scheduleHint, demoMode, mode, startSpicyLevel]);
+
+  // ---- Жизненный цикл уровня «с перчинкой»: следующий / ретрай / резюм / заново (бриф §4). ----
+  /** Победа → следующий уровень (level+1, свежая раскладка). Гасит in-flight таймеры (внутри startSpicyLevel). */
+  const nextLevel = useCallback(() => {
+    if (mode !== 'spicy') return;
+    startSpicyLevel(levelRef.current + 1);
+    persistBoard();
+    scheduleHint();
+  }, [mode, startSpicyLevel, persistBoard, scheduleHint]);
+
+  /** Поражение → «ещё разок»: тот же уровень, новый seed, полный бюджет (подготовлен в finishSpicyMove). */
+  const retryLevel = useCallback(() => {
+    if (mode !== 'spicy') return;
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+    clearIdleTimer();
+    const retry = pendingRetryRef.current;
+    if (retry) {
+      pendingRetryRef.current = null;
+      applyState(spicyStateFromLevel(retry));
+    } else {
+      startSpicyLevel(levelRef.current); // страховка: перегенерить тот же уровень
+    }
+    persistBoard();
+    scheduleHint();
+  }, [mode, applyState, startSpicyLevel, clearIdleTimer, persistBoard, scheduleHint]);
+
+  /** Вход с незаконченным уровнем → «Продолжить»: доска уже применена (applyState), просто играем. */
+  const resumeLevel = useCallback(() => {
+    setResumeChoice(null);
+    scheduleHint();
+  }, [scheduleHint]);
+
+  /** Вход с незаконченным уровнем → «Начать заново»: тот же уровень с нуля (новый seed). */
+  const restartLevel = useCallback(() => {
+    const lvl = resumeChoiceRef.current?.level ?? statsRef.current.maxSpicyLevel + 1;
+    setResumeChoice(null);
+    startSpicyLevel(lvl);
+    persistBoard();
+    scheduleHint();
+  }, [startSpicyLevel, persistBoard, scheduleHint]);
 
   const requestNewGame = useCallback(() => {
     // Не начинать новую игру, пока анимируется ход: иначе in-flight ход (счёт/комбо/награды)
@@ -401,6 +809,7 @@ export function useMatch3() {
     loading,
     board,
     gems,
+    obstacles,
     fx,
     busy,
     hint,
@@ -416,6 +825,19 @@ export function useMatch3() {
     requestNewGame,
     startNewGame,
     cancelNewGame,
+    // ---- Режим «с перчинкой» (бриф §1). Лайт отдаёт константные дефолты ⇒ его UI не меняется. ----
+    mode,
+    level,
+    movesLeft: mode === 'spicy' ? movesLeft : Infinity,
+    goal,
+    goalProgress,
+    status,
+    maxSpicyLevel: stats.maxSpicyLevel,
+    resumeChoice,
+    nextLevel,
+    retryLevel,
+    resumeLevel,
+    restartLevel,
   };
 }
 

@@ -45,12 +45,19 @@ export function useGame2048() {
   const setStats = (v: CumulativeStats) => ((statsRef.current = v), setStatsState(v));
   const setWon = (v: boolean) => ((wonRef.current = v), setWonState(v));
 
+  // Защита данных: если mount-загрузка упала (транзиентный сбой чтения CloudStorage → loadJSON
+  // бросает), НЕ перезаписываем реальные board/stats дефолтом. Гейтим запись до следующего удачного
+  // запуска (её партия восстановится при перезаходе). По умолчанию true — нормальный путь не задет.
+  const loadOkRef = useRef(true);
+
   const persistBoard = useCallback(() => {
+    if (!loadOkRef.current) return; // mount-load упал — не рискуем затереть реальную партию
     void repo
       .saveBoard({ grid: tilesToGrid(tilesRef.current), game: gameRef.current, won: wonRef.current })
       .catch((err) => console.warn('[2048] не удалось сохранить «board»:', err));
   }, [repo]);
   const persistStats = useCallback(() => {
+    if (!loadOkRef.current) return; // mount-load упал — не рискуем затереть реальные статы нулями
     void repo.saveStats(statsRef.current).catch((err) => console.warn('[2048] не удалось сохранить «stats»:', err));
   }, [repo]);
 
@@ -83,6 +90,7 @@ export function useGame2048() {
       } catch (err) {
         if (cancelled) return;
         console.warn('[2048] загрузка партии не удалась, старт с чистого листа:', err);
+        loadOkRef.current = false; // сбой чтения ≠ «данных нет» → НЕ персистим дефолт поверх реальных
         setStats({ ...defaultStats(), gamesPlayed: 1 });
         setGame(defaultCurrentGame(now));
         setTiles(gridToTiles(createInitialGrid()));

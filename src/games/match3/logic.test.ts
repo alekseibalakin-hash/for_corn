@@ -5,16 +5,23 @@ import {
   applySwap,
   cloneBoard,
   createBoard,
+  createRoomBoard,
+  emptyObstacles,
   findAnyMove,
   findMatches,
   hasAnyMove,
   isAdjacent,
+  isEmptyObstacles,
+  isStatic,
+  isSwappable,
   isValidSwap,
   mulberry32,
+  normalizeObstacles,
   refill,
   reshuffle,
   resolveCascades,
   resolveSwap,
+  settleColumn,
   SIZE,
   specialForShape,
   TYPE_COUNT,
@@ -541,5 +548,287 @@ describe('чистота функций', () => {
     const snapshot = cloneBoard(b);
     resolveSwap(b, { r: 4, c: 4 }, { r: 4, c: 5 }, mulberry32(1));
     expect(b).toEqual(snapshot);
+  });
+});
+
+// ============================================================================
+// ПРЕПЯТСТВИЯ (Match-3 «Комнаты», Фаза 1). Дефолт (нет ob) ⇒ всё выше — байт-в-байт прежнее.
+// ============================================================================
+
+describe('isStatic / isSwappable', () => {
+  it('блок и лёд статичны; обычная/пустая клетка — нет', () => {
+    const b = canvas();
+    const ob = emptyObstacles();
+    ob.blocks[1][1] = true;
+    b[1][1] = null;
+    ob.ice[2][2] = 1;
+    expect(isStatic(1, 1, ob)).toBe(true); // блок
+    expect(isStatic(2, 2, ob)).toBe(true); // лёд
+    expect(isStatic(0, 0, ob)).toBe(false);
+    expect(isSwappable(b, ob, 0, 0)).toBe(true);
+    expect(isSwappable(b, ob, 1, 1)).toBe(false); // блок-клетка
+    expect(isSwappable(b, ob, 2, 2)).toBe(false); // замороженная
+  });
+
+  it('дефолт emptyObstacles: static нигде, isEmptyObstacles=true', () => {
+    const ob = emptyObstacles();
+    expect(isEmptyObstacles(ob)).toBe(true);
+    expect(isStatic(3, 3, ob)).toBe(false);
+  });
+});
+
+describe('findMatches с препятствиями (static разрывает run)', () => {
+  it('замороженная клетка разрывает тройку своего же типа', () => {
+    const b = canvas();
+    put(b, 0, 0, D);
+    put(b, 0, 1, D);
+    put(b, 0, 2, D);
+    expect(findMatches(b)).toHaveLength(1); // без ob — тройка
+    const ob = emptyObstacles();
+    ob.ice[0][1] = 1; // заморозили середину
+    expect(findMatches(b, ob)).toHaveLength(0); // лёд разорвал run — совпадения нет
+  });
+
+  it('блок делит ряд: тройка «через блок» не считается', () => {
+    const b = canvas();
+    put(b, 3, 2, D);
+    put(b, 3, 4, D); // блок будет на (3,3) — между ними
+    const ob = emptyObstacles();
+    ob.blocks[3][3] = true;
+    b[3][3] = null;
+    expect(findMatches(b, ob)).toHaveLength(0);
+  });
+});
+
+describe('settleColumn (общий итератор гравитации)', () => {
+  it('без static: пустой верх → refillRows сверху, осевшее не двигается', () => {
+    const { moves, refillRows } = settleColumn(
+      () => false,
+      (r) => r >= 2, // filled rows 2..7, пусто 0,1
+    );
+    expect(refillRows).toEqual([0, 1]);
+    expect(moves).toEqual([]);
+  });
+
+  it('блок делит столбец: под-блочный сегмент НЕ рефиллится, фишки оседают в своём сегменте', () => {
+    const { moves, refillRows } = settleColumn(
+      (r) => r === 4, // блок на 4
+      (r) => r !== 4 && r !== 7, // дыра под блоком (7), верхний сегмент полон
+    );
+    expect(refillRows).toEqual([]); // верхний сегмент полон, нижний (segTop>0) не рефиллится
+    expect(moves).toContainEqual({ from: 6, to: 7 });
+    expect(moves).toContainEqual({ from: 5, to: 6 });
+  });
+});
+
+describe('сегментная гравитация / refill под блоком', () => {
+  it('блок делит столбец: фишки над не проваливаются, под-блочная дыра остаётся null навсегда', () => {
+    const b = canvas();
+    const ob = emptyObstacles();
+    ob.blocks[4][0] = true;
+    b[4][0] = null;
+    b[6][0] = null; // клир под блоком
+    b[7][0] = null;
+    const g = applyGravity(b, ob);
+    expect(g[4][0]).toBeNull(); // блок на месте (не фишка)
+    expect(g[7][0]).not.toBeNull(); // (5,0) осела на дно своего сегмента
+    expect(g[5][0]).toBeNull();
+    expect(g[0][0]).not.toBeNull(); // верхний сегмент не провалился сквозь блок
+    const f = refill(g, mulberry32(1), ob);
+    expect(f[5][0]).toBeNull(); // под блоком НЕ доливается
+    expect(f[6][0]).toBeNull();
+    expect(f[4][0]).toBeNull(); // блок цел
+  });
+
+  it('верхний открытый сегмент доливается, дыры над блоком закрываются', () => {
+    const b = canvas();
+    const ob = emptyObstacles();
+    ob.blocks[4][0] = true;
+    b[4][0] = null;
+    b[0][0] = null; // дыры в верхнем сегменте
+    b[1][0] = null;
+    const f = refill(applyGravity(b, ob), mulberry32(1), ob);
+    expect(f[0][0]).not.toBeNull();
+    expect(f[1][0]).not.toBeNull();
+    expect(f[4][0]).toBeNull(); // блок цел
+  });
+
+  it('дефолт (нет ob): applyGravity/refill идентичны базовому поведению', () => {
+    const b = canvas();
+    b[7][0] = null;
+    b[6][0] = null;
+    const g = applyGravity(b);
+    expect(g[0][0]).toBeNull();
+    expect(g.map((row) => row[0]).filter(Boolean)).toHaveLength(6);
+    const f = refill(g, mulberry32(3));
+    expect(f.flat().filter(Boolean)).toHaveLength(SIZE * SIZE);
+  });
+});
+
+describe('спец НЕ пробивает обстакл', () => {
+  it('line: блок в ряду НЕ зануляется и НЕ считается (clearedCount меньше на блок)', () => {
+    const b = canvas();
+    put(b, 4, 4, D, 'line');
+    const noOb = activateInPlace(b, { r: 4, c: 4 }, mulberry32(1));
+    expect(noOb.steps[0].clearedCount).toBe(15); // 8+8-1
+
+    const ob = emptyObstacles();
+    ob.blocks[4][1] = true;
+    b[4][1] = null; // блок в ряду линии
+    const withOb = activateInPlace(b, { r: 4, c: 4 }, mulberry32(1), ob);
+    expect(withOb.steps[0].clearedCount).toBe(14); // блок не убран
+    expect(withOb.obstacles.blocks[4][1]).toBe(true); // блок цел
+    expect(withOb.steps[0].board[4][1]).toBeNull(); // блок-клетка — не фишка
+  });
+
+  it('замороженная фишка в зоне взрыва выживает (не ретайрится), но её иней скалывается', () => {
+    const b = canvas();
+    put(b, 4, 4, D, 'line');
+    const ob = emptyObstacles();
+    ob.ice[4][6] = 1; // лёд в ряду линии
+    put(b, 4, 6, 5);
+    const res = activateInPlace(b, { r: 4, c: 4 }, mulberry32(1), ob);
+    // (4,6) не убрана (clearedCount 14, а не 15), но соседи по ряду очищены → иней сколот
+    expect(res.steps[0].clearedCount).toBe(14);
+    expect(res.steps[0].board[4][6]).not.toBeNull(); // фишка под льдом цела
+    expect(res.obstacles.ice[4][6]).toBe(0); // оттаяла
+  });
+
+  it('замороженный спец НЕ детонирует по цепочке (обстакл не пробивается)', () => {
+    const b = canvas();
+    put(b, 4, 4, D, 'line');
+    put(b, 4, 1, D, 'bomb'); // в ряду линии, но заморожен
+    const ob = emptyObstacles();
+    ob.ice[4][1] = 1;
+    const res = activateInPlace(b, { r: 4, c: 4 }, mulberry32(1), ob);
+    expect(res.steps[0].detonated.some((d) => d.special === 'line')).toBe(true);
+    expect(res.steps[0].detonated.some((d) => d.special === 'bomb')).toBe(false); // заморожен — не цепляется
+  });
+});
+
+describe('скол льда — отдельный канал (лёд = 1 слой)', () => {
+  it('клир у орто-соседа льда → ice-- (раз за шаг); фишка цела; clearedCount не растёт', () => {
+    const b = canvas();
+    const ob = emptyObstacles();
+    ob.ice[3][4] = 1;
+    put(b, 3, 4, 5); // фишка под льдом
+    put(b, 3, 1, D); // тройка, чей край (3,3) — орто-сосед льда (3,4)
+    put(b, 3, 2, D);
+    put(b, 3, 3, D);
+    const res = resolveCascades(b, mulberry32(1), { obstacles: ob });
+    expect(res.steps[0].clearedCount).toBe(3); // лёд-фишку НЕ считаем
+    expect(res.steps[0].iceHit).toEqual([{ r: 3, c: 4 }]);
+    expect(res.iceCleared).toBe(1);
+    expect(res.obstacles.ice[3][4]).toBe(0); // оттаял (1 слой)
+    expect(res.steps[0].board[3][4]).not.toBeNull(); // фишка под льдом на поле
+    expect(isStatic(3, 4, res.obstacles)).toBe(false); // оживает
+  });
+
+  it('лёд НЕ у соседа клира не скалывается', () => {
+    const b = canvas();
+    const ob = emptyObstacles();
+    ob.ice[0][7] = 1;
+    put(b, 0, 7, 5);
+    put(b, 5, 0, D); // тройка далеко от льда
+    put(b, 6, 0, D);
+    put(b, 7, 0, D);
+    const res = resolveCascades(b, mulberry32(1), { obstacles: ob });
+    expect(res.iceCleared).toBe(0);
+    expect(res.obstacles.ice[0][7]).toBe(1);
+  });
+});
+
+describe('isValidSwap / findAnyMove / reshuffle с препятствиями', () => {
+  it('isValidSwap: своп с/из static невалиден', () => {
+    const b = canvas();
+    put(b, 0, 1, D);
+    put(b, 0, 2, D);
+    put(b, 1, 0, D); // (0,0)<->(1,0) → D D D
+    expect(isValidSwap(b, { r: 0, c: 0 }, { r: 1, c: 0 })).toBe(true);
+    const ob = emptyObstacles();
+    ob.ice[0][0] = 1; // заморозили исток
+    expect(isValidSwap(b, { r: 0, c: 0 }, { r: 1, c: 0 }, ob)).toBe(false);
+  });
+
+  it('findAnyMove возвращает только подвижную (isSwappable) пару', () => {
+    const { board, obstacles } = createRoomBoard({ blocks: [{ r: 4, c: 4 }], ice: [{ r: 2, c: 2 }] }, mulberry32(1));
+    const move = findAnyMove(board, obstacles);
+    expect(move).not.toBeNull();
+    const [p, q] = move!;
+    expect(isSwappable(board, obstacles, p.r, p.c)).toBe(true);
+    expect(isSwappable(board, obstacles, q.r, q.c)).toBe(true);
+  });
+
+  it('reshuffle room-aware: обстаклы на местах, фишка не попадает в static, мультимножество цело', () => {
+    const b = createBoard(mulberry32(3));
+    const ob = emptyObstacles();
+    ob.blocks[2][2] = true;
+    b[2][2] = null;
+    ob.ice[5][5] = 1;
+    const frozen = b[5][5];
+    const re = reshuffle(b, mulberry32(9), ob);
+    expect(re[2][2]).toBeNull(); // блок-клетка осталась пустой
+    expect(re[5][5]).toEqual(frozen); // замороженная фишка НЕ тасуется
+    // ни одна фишка не попала в static-клетку (кроме сохранённой замороженной)
+    for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++) if (ob.blocks[r][c]) expect(re[r][c]).toBeNull();
+    const movable = (board: Board): Map<number, number> => {
+      const m = new Map<number, number>();
+      for (let r = 0; r < SIZE; r++)
+        for (let c = 0; c < SIZE; c++) if (isSwappable(board, ob, r, c)) m.set(board[r][c]!.type, (m.get(board[r][c]!.type) ?? 0) + 1);
+      return m;
+    };
+    expect(movable(re)).toEqual(movable(b));
+    expect(hasAnyMove(re, ob)).toBe(true);
+    expect(findMatches(re, ob)).toHaveLength(0);
+    // reshuffle не мутировал переданные obstacles
+    expect(ob.blocks[2][2]).toBe(true);
+    expect(ob.ice[5][5]).toBe(1);
+  });
+});
+
+describe('createRoomBoard', () => {
+  const layout = { blocks: [{ r: 4, c: 3 }, { r: 4, c: 4 }], ice: [{ r: 2, c: 2 }, { r: 5, c: 5 }] };
+
+  it('блок-клетки пусты, лёд-клетки с фишкой ice=1, без совпадений, есть ход', () => {
+    const { board, obstacles } = createRoomBoard(layout, mulberry32(1));
+    expect(obstacles.blocks[4][3]).toBe(true);
+    expect(board[4][3]).toBeNull();
+    expect(board[4][4]).toBeNull();
+    expect(obstacles.ice[2][2]).toBe(1);
+    expect(board[2][2]).not.toBeNull(); // под льдом — обычная фишка
+    expect(board[5][5]).not.toBeNull();
+    expect(findMatches(board, obstacles)).toHaveLength(0);
+    expect(hasAnyMove(board, obstacles)).toBe(true);
+    expect(board.flat().filter(Boolean)).toHaveLength(SIZE * SIZE - 2); // минус 2 блока
+  });
+
+  it('детерминирован по seed', () => {
+    expect(createRoomBoard(layout, mulberry32(7))).toEqual(createRoomBoard(layout, mulberry32(7)));
+  });
+});
+
+describe('normalizeObstacles (миграция — бережно к данным жены)', () => {
+  it('нет данных → пустые слои нужного размера', () => {
+    const ob = normalizeObstacles(undefined);
+    expect(isEmptyObstacles(ob)).toBe(true);
+    expect(ob.blocks).toHaveLength(SIZE);
+    expect(ob.ice[0]).toHaveLength(SIZE);
+  });
+
+  it('битые/частичные данные → безопасный пустой дефолт (без краша)', () => {
+    expect(isEmptyObstacles(normalizeObstacles(42))).toBe(true);
+    expect(isEmptyObstacles(normalizeObstacles({ blocks: 'oops', ice: null }))).toBe(true);
+    expect(isEmptyObstacles(normalizeObstacles({ ice: [[-1, 'x']] }))).toBe(true); // мусорные значения → 0
+  });
+
+  it('round-trip через JSON: blocks/ice сохраняются', () => {
+    const ob = emptyObstacles();
+    ob.blocks[4][3] = true;
+    ob.ice[2][2] = 1;
+    const back = normalizeObstacles(JSON.parse(JSON.stringify(ob)));
+    expect(back.blocks[4][3]).toBe(true);
+    expect(back.ice[2][2]).toBe(1);
+    expect(isEmptyObstacles(back)).toBe(false);
   });
 });

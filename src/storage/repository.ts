@@ -1,6 +1,7 @@
 import type { Coupon, CumulativeStats, CurrentGameStats, HistoryEntry, Progress } from '../engine/types';
 import type { Grid } from '../game/types';
-import type { Board as Match3Board } from '../games/match3/logic';
+import type { Board as Match3Board, Obstacles } from '../games/match3/logic';
+import type { SpicyLevelState } from '../games/match3/levels';
 import type { M3CumulativeStats, M3CurrentGame } from '../games/match3/stats';
 import { STORAGE_KEYS, type KVStore } from './types';
 
@@ -12,10 +13,26 @@ export interface PersistedBoard {
   won: boolean;
 }
 
-/** Сохранённая партия Match-3 для resume (Фаза B, ключ `match3.board`): поле + per-game статы. */
+/**
+ * Сохранённая партия Match-3 для resume (Фаза B, ключ `match3.board`): поле + per-game статы.
+ * `obstacles` (Match-3 «Комнаты», Фаза 1) — аддитивно и ОПЦИОНАЛЬНО: эндлесс его НЕ пишет (старый
+ * blob жены без поля грузится через дефолт `emptyObstacles`), новый storage-ключ НЕ заводим (бриф §5).
+ *
+ * Match-3 «с перчинкой» (бриф spicy §5) — ещё два аддитивных опц. поля на ТОМ ЖЕ ключе:
+ *  - `spicy` — снимок незаконченного спайси-уровня (board+obstacles+поток), ОТДЕЛЬНО от лайт-слота
+ *    `{board,game}` ⇒ лайт и перчинка резюмятся НЕЗАВИСИМО, не затирая друг друга. `persistBoard`
+ *    пишет ПОЛНЫЙ объект (склейка top+spicy), иначе coalescingStore last-write-wins сотрёт чужой слот;
+ *  - `mode` — форвард-совместимость (в v1 «последний режим» НЕ помним, §9 Q4).
+ * Старый blob жены без этих полей грузится без ошибок (normalizeSpicy/normalizeMode дают дефолты).
+ */
 export interface PersistedMatch3 {
-  board: Match3Board;
-  game: M3CurrentGame;
+  // board/game ОПЦИОНАЛЬНЫ: blob может нести только spicy-слот (игрок зашёл сразу в «перчинку»),
+  // только лайт-слот (как у жены сейчас) или оба. Лайт-загрузка гейтит по `Array.isArray(board)`.
+  board?: Match3Board;
+  game?: M3CurrentGame;
+  obstacles?: Obstacles;
+  mode?: 'light' | 'spicy';
+  spicy?: SpicyLevelState | null;
 }
 
 export function byteLength(str: string): number {
@@ -43,14 +60,12 @@ export function trimHistory(entries: HistoryEntry[], maxBytes = 3500, maxLen = 1
 }
 
 async function loadJSON<T>(store: KVStore, key: string): Promise<T | null> {
-  try {
-    const raw = await store.getItem(key);
-    if (raw == null) return null;
-    return JSON.parse(raw) as T;
-  } catch {
-    // Битые данные не должны ронять подарок — начинаем с чистого листа по этому ключу.
-    return null;
-  }
+  // Ошибка getItem (таймаут, транзиентный сбой CloudStorage) — пробрасываем, не глотаем.
+  // Звонящий увидит reject и не станет затирать реальные данные дефолтом.
+  // null возвращаем только при ПОДЛИННОМ отсутствии ключа или битом JSON.
+  const raw = await store.getItem(key);
+  if (raw == null) return null;
+  try { return JSON.parse(raw) as T; } catch { return null; }
 }
 
 async function saveJSON<T>(store: KVStore, key: string, value: T): Promise<void> {

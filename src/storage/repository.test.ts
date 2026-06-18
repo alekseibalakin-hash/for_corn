@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { HistoryEntry } from '../engine/types';
 import { memoryBackend } from './backends';
 import { byteLength, createRepository, trimHistory } from './repository';
+import type { KVStore } from './types';
 import { defaultStats } from '../engine/stats';
 import { defaultM3Game, defaultM3Stats } from '../games/match3/stats';
-import type { Board as Match3Board } from '../games/match3/logic';
+import { emptyObstacles, normalizeObstacles, type Board as Match3Board } from '../games/match3/logic';
+import { generateLevel, normalizeSpicy, type SpicyLevelState } from '../games/match3/levels';
 
 const entry = (i: number): HistoryEntry => ({
   id: `cpn-${i}`,
@@ -15,6 +17,71 @@ const entry = (i: number): HistoryEntry => ({
   achievementId: 'welcome',
   resolvedAt: i + 500,
   reason: i % 2 ? 'redeemed' : 'expired',
+});
+
+/** Бэкенд-заглушка, чей getItem всегда реджектит (имитирует таймаут CloudStorage). */
+function rejectingReadBackend(): KVStore {
+  return {
+    getItem: (_key) => Promise.reject(new Error('CloudStorage timeout')),
+    setItem: async () => {},
+    removeItem: async () => {},
+  };
+}
+
+describe('loadJSON — стойкость к сбою getItem (фикс A)', () => {
+  it('reject от getItem пробрасывается (НЕ трактуется как «нет данных»)', async () => {
+    const repo = createRepository(rejectingReadBackend());
+    // Каждый loadXxx должен rejected, а не возвращать null
+    await expect(repo.loadStats()).rejects.toThrow('CloudStorage timeout');
+    await expect(repo.loadBoard()).rejects.toThrow('CloudStorage timeout');
+    await expect(repo.loadMatch3Board()).rejects.toThrow('CloudStorage timeout');
+    await expect(repo.loadMatch3Stats()).rejects.toThrow('CloudStorage timeout');
+    await expect(repo.loadWallet()).rejects.toThrow('CloudStorage timeout');
+    await expect(repo.loadHistory()).rejects.toThrow('CloudStorage timeout');
+    await expect(repo.loadProgress()).rejects.toThrow('CloudStorage timeout');
+  });
+
+  it('реальные данные в store целы после reject — saveXxx с дефолтом не вызывался', async () => {
+    const inner = memoryBackend({
+      stats: JSON.stringify({ ...defaultStats(), totalScore: 9999 }),
+      'match3.stats': JSON.stringify({ ...defaultM3Stats(), totalScore: 777 }),
+    });
+    // Backend реджектит чтение, но write проксируется на inner (чтобы убедиться: ничего не написано)
+    const failRead: KVStore = {
+      getItem: (_key) => Promise.reject(new Error('timeout')),
+      setItem: (k, v) => inner.setItem(k, v),
+      removeItem: (k) => inner.removeItem(k),
+    };
+    const repo = createRepository(failRead);
+    // Попытки читать — бросают
+    await expect(repo.loadStats()).rejects.toThrow();
+    await expect(repo.loadMatch3Stats()).rejects.toThrow();
+    // Исходные данные в inner НЕ затёрты (saveXxx не вызван с дефолтом)
+    expect(JSON.parse((await inner.getItem('stats'))!)?.totalScore).toBe(9999);
+    expect(JSON.parse((await inner.getItem('match3.stats'))!)?.totalScore).toBe(777);
+  });
+
+  it('подлинное отсутствие ключа (getItem → null) даёт null без броска', async () => {
+    const repo = createRepository(memoryBackend());
+    expect(await repo.loadStats()).toBeNull();
+    expect(await repo.loadBoard()).toBeNull();
+    expect(await repo.loadMatch3Board()).toBeNull();
+    expect(await repo.loadMatch3Stats()).toBeNull();
+    expect(await repo.loadWallet()).toBeNull();
+    expect(await repo.loadHistory()).toBeNull();
+    expect(await repo.loadProgress()).toBeNull();
+  });
+
+  it('битый JSON → null без краша (только parse-ошибка перехватывается)', async () => {
+    const repo = createRepository(memoryBackend({
+      stats: '{не json',
+      'match3.board': 'garbage',
+      wallet: '[[broken',
+    }));
+    expect(await repo.loadStats()).toBeNull();
+    expect(await repo.loadMatch3Board()).toBeNull();
+    expect(await repo.loadWallet()).toBeNull();
+  });
 });
 
 describe('trimHistory', () => {
@@ -84,11 +151,95 @@ describe('repository round-trip', () => {
 
     const loadedBoard = await repo.loadMatch3Board();
     expect(loadedBoard?.board).toEqual(board);
-    expect(loadedBoard?.game.sessionScore).toBe(777);
+    expect(loadedBoard?.game?.sessionScore).toBe(777);
     expect((await repo.loadMatch3Stats())?.totalScore).toBe(555);
 
     await repo.resetState();
     expect(await repo.loadMatch3Board()).toBeNull();
     expect(await repo.loadMatch3Stats()).toBeNull();
+  });
+
+  it('match3: obstacles round-trip (Комнаты, Фаза 1) — аддитивно, на существующем ключе', async () => {
+    const repo = createRepository(memoryBackend());
+    const board: Match3Board = [[{ type: 0 }, null]];
+    const obstacles = emptyObstacles();
+    obstacles.blocks[0][1] = true;
+    obstacles.ice[0][0] = 1;
+    await repo.saveMatch3Board({ board, game: defaultM3Game(), obstacles });
+    const loaded = await repo.loadMatch3Board();
+    expect(normalizeObstacles(loaded?.obstacles).blocks[0][1]).toBe(true);
+    expect(normalizeObstacles(loaded?.obstacles).ice[0][0]).toBe(1);
+    // obstacles живут на том же ключе match3.board ⇒ чистятся resetState
+    await repo.resetState();
+    expect(await repo.loadMatch3Board()).toBeNull();
+  });
+
+  it('match3: СТАРЫЙ board жены без obstacles грузится — поле через дефолт пустое (миграция)', async () => {
+    // Эмулируем ровно blob предыдущей версии: только {board, game}, без поля obstacles.
+    const legacy = JSON.stringify({ board: [[{ type: 2 }, { type: 3 }]], game: { ...defaultM3Game(), sessionScore: 42 } });
+    const repo = createRepository(memoryBackend({ 'match3.board': legacy }));
+    const loaded = await repo.loadMatch3Board();
+    expect(loaded?.game?.sessionScore).toBe(42); // партия читается
+    expect(loaded?.obstacles).toBeUndefined(); // нового поля нет
+    const ob = normalizeObstacles(loaded?.obstacles); // читаем через дефолт
+    expect(ob.blocks.flat().some(Boolean)).toBe(false); // блоков нет
+    expect(ob.ice.flat().some((n) => n > 0)).toBe(false); // льда нет
+  });
+
+  it('match3: эндлесс пишет blob БЕЗ obstacles (байт-в-байт прежний формат)', async () => {
+    const backend = memoryBackend();
+    const repo = createRepository(backend);
+    await repo.saveMatch3Board({ board: [[{ type: 1 }]], game: defaultM3Game() });
+    const raw = await backend.getItem('match3.board');
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw!).obstacles).toBeUndefined(); // поля obstacles в эндлесс-blob нет
+  });
+
+  it('match3: spicy-слот round-trip + dual-slot (лайт top + spicy не затирают друг друга) + reset', async () => {
+    const repo = createRepository(memoryBackend());
+    const lvl = generateLevel(2, 5);
+    const spicy: SpicyLevelState = {
+      level: lvl.level,
+      seed: lvl.seed,
+      movesLeft: lvl.movesBudget,
+      goal: lvl.goal,
+      progress: 0,
+      streamPos: 0,
+      board: lvl.board,
+      obstacles: lvl.obstacles,
+    };
+    // ПОЛНЫЙ объект: лайт-слот {board, game} + spicy-слот — оба должны пережить round-trip.
+    const lightBoard: Match3Board = [[{ type: 1 }, { type: 2 }]];
+    await repo.saveMatch3Board({ board: lightBoard, game: { ...defaultM3Game(), sessionScore: 99 }, spicy });
+    const loaded = await repo.loadMatch3Board();
+    expect(loaded?.board).toEqual(lightBoard); // лайт-слот цел
+    expect(loaded?.game?.sessionScore).toBe(99);
+    expect(normalizeSpicy(loaded?.spicy)?.level).toBe(lvl.level); // spicy-слот цел
+    expect(normalizeSpicy(loaded?.spicy)?.movesLeft).toBe(lvl.movesBudget);
+    await repo.resetState(); // оба слота на одном ключе → чистятся целиком
+    expect(await repo.loadMatch3Board()).toBeNull();
+  });
+
+  it('match3: лайт-сейв БЕЗ перчинки не несёт ключей spicy/mode (байт-в-байт прежний формат жены)', async () => {
+    const backend = memoryBackend();
+    const repo = createRepository(backend);
+    await repo.saveMatch3Board({ board: [[{ type: 1 }]], game: defaultM3Game() });
+    const raw = JSON.parse((await backend.getItem('match3.board'))!);
+    expect(raw.spicy).toBeUndefined();
+    expect(raw.mode).toBeUndefined();
+    expect(raw.obstacles).toBeUndefined();
+  });
+
+  it('match3: spicy-only blob (игрок зашёл сразу в перчинку) — board лайта undefined, грузится без краша', async () => {
+    const repo = createRepository(memoryBackend());
+    const lvl = generateLevel(1, 3);
+    const spicy: SpicyLevelState = {
+      level: lvl.level, seed: lvl.seed, movesLeft: lvl.movesBudget, goal: lvl.goal,
+      progress: 0, streamPos: 0, board: lvl.board, obstacles: lvl.obstacles,
+    };
+    await repo.saveMatch3Board({ spicy }); // нет лайт-слота
+    const loaded = await repo.loadMatch3Board();
+    expect(loaded?.board).toBeUndefined(); // лайт-загрузка по Array.isArray(board) уйдёт в «нет партии»
+    expect(normalizeSpicy(loaded?.spicy)?.level).toBe(lvl.level);
   });
 });

@@ -1,0 +1,12 @@
+{
+  "_comment": "Кривая сложности Match-3 «с перчинкой» (бриф match3-spicy §3). Бэнды по диапазонам уровней: `maxLevel` — верхняя граница уровня бэнда (последний — sentinel). iceMin/iceMax — сколько льдин (цель clearIce = столько разморозить). blocksMin/blocksMax — сколько камней-разделителей. clusterChance — насколько лёд может кучковаться (точнее сетап → больше ходов). budgetMultiplier (generosity) — во сколько раз бюджет ходов щедрее свидетеля солвера. budgetFloor — аддитивный пол: movesBudget = max(worst + floor, ceil(worst × multiplier)). ПОТОЛОК ЧЕСТНОСТИ: iceMax ≤ 28, blocksMax ≤ 6 (глубже не плотнее, а туже generosity). Бэнды МОНОТОННЫ (лёд/блоки растут, generosity убывает, но всегда > 1). Это РУЧКА — правится без кода (validateContent проверяет инварианты).",
+  "bands": [
+    { "maxLevel": 2, "iceMin": 3, "iceMax": 5, "blocksMin": 1, "blocksMax": 2, "clusterChance": 0.15, "budgetMultiplier": 3.5, "budgetFloor": 6 },
+    { "maxLevel": 4, "iceMin": 5, "iceMax": 8, "blocksMin": 1, "blocksMax": 3, "clusterChance": 0.2, "budgetMultiplier": 3.0, "budgetFloor": 6 },
+    { "maxLevel": 7, "iceMin": 8, "iceMax": 12, "blocksMin": 2, "blocksMax": 4, "clusterChance": 0.25, "budgetMultiplier": 1.8, "budgetFloor": 5 },
+    { "maxLevel": 10, "iceMin": 12, "iceMax": 16, "blocksMin": 2, "blocksMax": 5, "clusterChance": 0.3, "budgetMultiplier": 1.65, "budgetFloor": 5 },
+    { "maxLevel": 14, "iceMin": 16, "iceMax": 20, "blocksMin": 3, "blocksMax": 6, "clusterChance": 0.32, "budgetMultiplier": 1.5, "budgetFloor": 4 },
+    { "maxLevel": 19, "iceMin": 20, "iceMax": 24, "blocksMin": 3, "blocksMax": 6, "clusterChance": 0.35, "budgetMultiplier": 1.42, "budgetFloor": 4 },
+    { "maxLevel": 9999, "iceMin": 24, "iceMax": 28, "blocksMin": 4, "blocksMax": 6, "clusterChance": 0.38, "budgetMultiplier": 1.35, "budgetFloor": 4 }
+  ]
+}

@@ -79,6 +79,30 @@ export interface AchievementsConfig {
   achievements: Achievement[];
 }
 
+// --- Match-3 «с перчинкой»: кривая сложности (бриф match3-spicy §3) ---
+
+/** Один бэнд сложности по диапазону уровней. Применяется к уровням `level <= maxLevel`. */
+export interface SpicyBand {
+  /** Верхняя граница уровня бэнда (последний бэнд — большой sentinel). */
+  maxLevel: number;
+  /** Сколько льдин минимум/максимум (цель clearIce = столько разморозить). */
+  iceMin: number;
+  iceMax: number;
+  /** Сколько камней-разделителей минимум/максимум. */
+  blocksMin: number;
+  blocksMax: number;
+  /** 0..1 — насколько лёд может кучковаться (выше → плотнее кластеры). */
+  clusterChance: number;
+  /** Generosity: бюджет ходов = ceil(свидетель × multiplier). Всегда > 1, по бэндам убывает. */
+  budgetMultiplier: number;
+  /** Аддитивный пол: movesBudget = max(worst + budgetFloor, ceil(worst × multiplier)). По умолчанию 4. */
+  budgetFloor?: number;
+}
+
+export interface SpicyConfig {
+  bands: SpicyBand[];
+}
+
 export function isCondition(t: Trigger): t is Condition {
   return 'stat' in t;
 }

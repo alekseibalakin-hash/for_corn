@@ -113,8 +113,15 @@ function useRewardsState(): RewardsApi {
   const setHistory = (v: HistoryEntry[]) => ((historyRef.current = v), setHistoryState(v));
   const setProgress = (v: Progress) => ((progressRef.current = v), setProgressState(v));
 
+  // Защита данных жены: если boot-загрузка ОБЩЕГО слоя упала (транзиентный сбой чтения CloudStorage →
+  // loadJSON бросает), НЕ перезаписываем реальные wallet/history/progress дефолтом. Гейтим ВСЕ persist
+  // до следующего удачного запуска — её купоны и «выполнено X из N» восстановятся при перезаходе.
+  // По умолчанию true ⇒ нормальный путь не задет; false ставится только в catch загрузки.
+  const bootOkRef = useRef(true);
+
   const persist = useCallback(
     (keys: Partial<{ wallet: boolean; history: boolean; progress: boolean }>) => {
+      if (!bootOkRef.current) return; // boot-load упал — не затираем её реальные данные дефолтом
       const repo = repoRef.current!;
       const guard = (key: string, p: Promise<unknown>) =>
         void p.catch((err) => console.warn(`[rewards] не удалось сохранить «${key}»:`, err));
@@ -168,6 +175,7 @@ function useRewardsState(): RewardsApi {
       } catch (err) {
         console.warn('[rewards] загрузка не удалась, общий слой с чистого листа:', err);
         if (cancelled) return;
+        bootOkRef.current = false; // сбой чтения ≠ «новый игрок» → блокируем persist (см. выше), не теряем её данные
         applyBoot({ wallet: null, history: null, progress: null, legacyStats: null, now, today });
       }
     })();

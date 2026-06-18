@@ -15,6 +15,12 @@ export interface M3CumulativeStats {
   gamesPlayed: number;
   /** Сколько раз сделано спец-комбо (своп двух спецфишек) за всё время — кумулятивный (level). */
   combos: number;
+  /**
+   * Достигнутая ГЛУБИНА в режиме «с перчинкой» — максимум ПРОЙДЕННОГО уровня (монотонный, level-триггер).
+   * НЕ счётчик прохождений (тот провоцировал бы грайнд ретраями). Не теряется при проигрыше/выходе.
+   * Веха выдаётся при пересечении порога; ретрай/перепрохождение максимум не растят ⇒ молчат (бриф §6).
+   */
+  maxSpicyLevel: number;
 }
 
 /** Per-game показатели match3 — сбрасываются с новой партией (восстанавливаются при резюме). */
@@ -41,10 +47,11 @@ export const M3_KEYS = {
   gemsCleared: `${M3_STAT_PREFIX}gemsCleared`,
   gamesPlayed: `${M3_STAT_PREFIX}gamesPlayed`,
   combos: `${M3_STAT_PREFIX}combos`,
+  maxSpicyLevel: `${M3_STAT_PREFIX}maxSpicyLevel`,
 } as const;
 
 export function defaultM3Stats(): M3CumulativeStats {
-  return { totalScore: 0, bestScore: 0, gemsCleared: 0, gamesPlayed: 0, combos: 0 };
+  return { totalScore: 0, bestScore: 0, gemsCleared: 0, gamesPlayed: 0, combos: 0, maxSpicyLevel: 0 };
 }
 
 export function defaultM3Game(): M3CurrentGame {
@@ -61,6 +68,9 @@ export function normalizeM3Stats(raw: Partial<M3CumulativeStats> | null | undefi
     gemsCleared: typeof raw.gemsCleared === 'number' ? raw.gemsCleared : 0,
     gamesPlayed: typeof raw.gamesPlayed === 'number' ? raw.gamesPlayed : 0,
     combos: typeof raw.combos === 'number' ? raw.combos : 0,
+    // Аддитивная миграция: старый blob жены без maxSpicyLevel → 0. Тройка interface+default+normalize
+    // атомарна — забыть поле тут = тихо обнулить глубину на cold load (бриф §5).
+    maxSpicyLevel: typeof raw.maxSpicyLevel === 'number' && raw.maxSpicyLevel > 0 ? raw.maxSpicyLevel : 0,
   };
 }
 
@@ -94,6 +104,8 @@ export function buildM3Snapshot(stats: M3CumulativeStats, game: M3CurrentGame): 
     [M3_KEYS.gamesPlayed]: stats.gamesPlayed,
     // combos — кумулятивный, инкрементится «вживую» в useMatch3 в сами stats (не per-game).
     [M3_KEYS.combos]: stats.combos,
+    // maxSpicyLevel — кумулятивный монотонный (глубина «перчинки»); level-триггер (НЕ в PER_GAME_STATS).
+    [M3_KEYS.maxSpicyLevel]: stats.maxSpicyLevel,
   };
 }
 

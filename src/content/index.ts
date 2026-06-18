@@ -1,5 +1,6 @@
 import achievementsJson from '../../content/achievements.json';
 import rewardsJson from '../../content/rewards.json';
+import spicyJson from '../../content/spicy.json';
 import {
   isAllOf,
   isAnyOf,
@@ -8,6 +9,8 @@ import {
   type AchievementsConfig,
   type Reward,
   type RewardsConfig,
+  type SpicyBand,
+  type SpicyConfig,
   type Tier,
   type Trigger,
 } from './types';
@@ -21,6 +24,14 @@ const OPERATORS = new Set(['>=', '<=', '>', '<', '==']);
 // поэтому приводим к нашим типам и валидируем целостность в рантайме.
 export const rewardsConfig = rewardsJson as unknown as RewardsConfig;
 export const achievementsConfig = achievementsJson as unknown as AchievementsConfig;
+export const spicyConfig = spicyJson as unknown as SpicyConfig;
+
+/** Бэнд сложности «перчинки» для уровня: первый бэнд, чей `maxLevel >= level` (бэнды отсортированы). */
+export function spicyBandForLevel(level: number): SpicyBand {
+  const bands = spicyConfig.bands;
+  for (const band of bands) if (level <= band.maxLevel) return band;
+  return bands[bands.length - 1]; // глубже последнего бэнда — держим самый сложный (sentinel)
+}
 
 const rewardsById = new Map<string, Reward>();
 const rewardsByTierMap = new Map<Tier, Reward[]>(TIERS.map((t) => [t, []]));
@@ -94,6 +105,41 @@ export function validateContent(): string[] {
     problems.push(...validateTrigger(ach.trigger, ach.id));
   }
 
+  problems.push(...validateSpicyBands());
+
+  return problems;
+}
+
+// ПОТОЛОК ЧЕСТНОСТИ (бриф §2.4): глубже не плотнее обстаклами, а туже generosity.
+const SPICY_ICE_CEILING = 28;
+const SPICY_BLOCK_CEILING = 6;
+
+/**
+ * Инварианты кривой «перчинки» (бриф §3): бэнды монотонны (диапазоны уровней растут, лёд/блоки не
+ * убывают, generosity не растёт и всегда > 1), и соблюдён потолок честности (iceMax ≤ 28, blocksMax ≤ 6,
+ * иначе солвер-гейт может не находить решение). Ловит кривой JSON до того, как он даст непроходимый уровень.
+ */
+function validateSpicyBands(): string[] {
+  const problems: string[] = [];
+  const bands = spicyConfig.bands;
+  if (!Array.isArray(bands) || bands.length === 0) return ['spicy: нет ни одного бэнда сложности'];
+  let prev: SpicyBand | null = null;
+  for (let i = 0; i < bands.length; i++) {
+    const b = bands[i];
+    if (b.iceMin < 1 || b.iceMax < b.iceMin) problems.push(`spicy band ${i}: некорректный диапазон льда`);
+    if (b.blocksMin < 0 || b.blocksMax < b.blocksMin) problems.push(`spicy band ${i}: некорректный диапазон блоков`);
+    if (b.budgetMultiplier <= 1) problems.push(`spicy band ${i}: budgetMultiplier должен быть > 1`);
+    if (b.clusterChance < 0 || b.clusterChance > 1) problems.push(`spicy band ${i}: clusterChance вне [0,1]`);
+    if (b.iceMax > SPICY_ICE_CEILING) problems.push(`spicy band ${i}: iceMax > потолка честности ${SPICY_ICE_CEILING}`);
+    if (b.blocksMax > SPICY_BLOCK_CEILING) problems.push(`spicy band ${i}: blocksMax > потолка честности ${SPICY_BLOCK_CEILING}`);
+    if (prev) {
+      if (b.maxLevel <= prev.maxLevel) problems.push(`spicy band ${i}: maxLevel не возрастает`);
+      if (b.iceMin < prev.iceMin || b.iceMax < prev.iceMax) problems.push(`spicy band ${i}: лёд убывает (не монотонно)`);
+      if (b.blocksMax < prev.blocksMax) problems.push(`spicy band ${i}: блоки убывают (не монотонно)`);
+      if (b.budgetMultiplier > prev.budgetMultiplier) problems.push(`spicy band ${i}: generosity растёт (должна туже)`);
+    }
+    prev = b;
+  }
   return problems;
 }
 

@@ -335,3 +335,55 @@ describe('edge-triggering m3 (тот же фикс резюма для Match-3, 
     expect(res.skipped).toContainEqual({ id: 'm3-combo', reason: 'alreadyCrossed' });
   });
 });
+
+describe('m3_maxSpicyLevel — веха глубины «с перчинкой» (level-триггер, НЕ per-game, бриф §6)', () => {
+  const spicy = (id: string, value: number): Achievement => ({
+    ...tagged(id, 'm3'),
+    trigger: { stat: 'm3_maxSpicyLevel', op: '>=', value },
+  });
+
+  it('GUARD: m3_maxSpicyLevel НЕ per-game — выдаётся, даже если порог был пройден ДО хода', () => {
+    // Если бы стат был в PER_GAME_STATS, prevSnapshot ≥ порога подавил бы выдачу (alreadyCrossed).
+    // Как кумулятивный монотонный — выдаётся (защищён только pending/completed). Это и есть отличие.
+    const res = run([spicy('m3-spicy-3', 3)], defaultProgress(TODAY), {
+      gameId: 'm3',
+      snapshot: { m3_maxSpicyLevel: 5 },
+      prevSnapshot: { m3_maxSpicyLevel: 5 },
+    });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['m3-spicy-3']);
+  });
+
+  it('веха срабатывает в момент прохождения порогового уровня (снапшот несёт повышенное значение)', () => {
+    const res = run([spicy('m3-spicy-1', 1), spicy('m3-spicy-3', 3), spicy('m3-spicy-5', 5)], defaultProgress(TODAY), {
+      gameId: 'm3',
+      snapshot: { m3_maxSpicyLevel: 3 }, // прошли уровень 3
+      prevSnapshot: { m3_maxSpicyLevel: 2 },
+    });
+    const ids = res.grants.map((g) => g.achievement.id);
+    expect(ids).toContain('m3-spicy-1');
+    expect(ids).toContain('m3-spicy-3');
+    expect(ids).not.toContain('m3-spicy-5'); // глубина 3 < 5
+  });
+
+  it('ретрай/перепрохождение не дублит: completed закрывает навсегда', () => {
+    const res = run([spicy('m3-spicy-3', 3)], { ...defaultProgress(TODAY), completed: ['m3-spicy-3'] }, {
+      gameId: 'm3',
+      snapshot: { m3_maxSpicyLevel: 9 },
+      prevSnapshot: { m3_maxSpicyLevel: 8 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'm3-spicy-3', reason: 'completed' });
+  });
+
+  it('живой купон (pending) не дублируется на следующем уровне', () => {
+    const wallet = [coupon('m3-spicy-3', 's1', NOW + DAY_MS)];
+    const res = run([spicy('m3-spicy-3', 3)], defaultProgress(TODAY), {
+      gameId: 'm3',
+      wallet,
+      snapshot: { m3_maxSpicyLevel: 7 },
+      prevSnapshot: { m3_maxSpicyLevel: 6 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'm3-spicy-3', reason: 'pending' });
+  });
+});

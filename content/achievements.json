@@ -246,6 +246,13 @@
     {"id":"m3-bigblast","type":"challenge","game":"m3","title":"Большой бабах","description":"Убери 20+ фишек одним ходом","trigger":{"stat":"m3_biggestClear","op":">=","value":20},"rewardTier":"medium","cooldownDays":1},
     {"id":"m3-combo-master","type":"milestone","game":"m3","title":"Комбо-мастер 🎆","description":"Сделай 10 спец-комбо","trigger":{"stat":"m3_combos","op":">=","value":10},"rewardTier":"medium"},
     {"id":"m3-combo-legend","type":"milestone","game":"m3","title":"Повелитель комбо","description":"Сделай 50 спец-комбо","trigger":{"stat":"m3_combos","op":">=","value":50},"rewardTier":"large"},
-    {"id":"m3-megaclear","type":"challenge","game":"m3","title":"Мегаклир","description":"Убери 30+ фишек одним ходом","trigger":{"stat":"m3_biggestClear","op":">=","value":30},"rewardTier":"large","cooldownDays":2}
+    {"id":"m3-megaclear","type":"challenge","game":"m3","title":"Мегаклир","description":"Убери 30+ фишек одним ходом","trigger":{"stat":"m3_biggestClear","op":">=","value":30},"rewardTier":"large","cooldownDays":2},
+    {"id":"m3-spicy-1","type":"milestone","game":"m3","title":"Первая перчинка 🌶️","description":"Пройди 1-й уровень «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":1},"rewardTier":"small","note":"Острые приключения тебе к лицу, любимая ❤️"},
+    {"id":"m3-spicy-3","type":"milestone","game":"m3","title":"Распробовала остринку","description":"Дойди до глубины 3 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":3},"rewardTier":"small"},
+    {"id":"m3-spicy-5","type":"milestone","game":"m3","title":"Пятёрочка с огоньком","description":"Дойди до глубины 5 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":5},"rewardTier":"medium"},
+    {"id":"m3-spicy-8","type":"milestone","game":"m3","title":"Глубокая разморозка","description":"Дойди до глубины 8 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":8},"rewardTier":"medium"},
+    {"id":"m3-spicy-12","type":"milestone","game":"m3","title":"Ледоруб","description":"Дойди до глубины 12 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":12},"rewardTier":"large"},
+    {"id":"m3-spicy-18","type":"milestone","game":"m3","title":"Покорительница льдов","description":"Дойди до глубины 18 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":18},"rewardTier":"large"},
+    {"id":"m3-spicy-25","type":"milestone","game":"m3","title":"Вершина перчинки 🌶️🏔️","description":"Дойди до глубины 25 «с перчинкой»","trigger":{"stat":"m3_maxSpicyLevel","op":">=","value":25},"rewardId":"restaurant","note":"Ты покорила и эту вершину. Горжусь тобой бесконечно ❤️"}
   ]
 }
