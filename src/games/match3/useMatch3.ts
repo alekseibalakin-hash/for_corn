@@ -800,6 +800,9 @@ export function useMatch3(mode: Match3Mode = 'light') {
     if (watchdogRef.current !== null) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
     pendingResolveRef.current = null;
     clearIdleTimer();
+    // prevSnapshot ДО коммита — чтобы edge-гейт глубины сработал и здесь (лайт «новая игра» НЕ меняет
+    // maxSpicyLevel ⇒ prev==snapshot по глубине ⇒ alreadyCrossed ⇒ веха-ужин не перевыдаётся). Адверс-чек.
+    const prevSnapshot = buildM3Snapshot(statsRef.current, gameRef.current);
     let nextStats = commitM3Game(statsRef.current, gameRef.current);
     nextStats = { ...nextStats, gamesPlayed: nextStats.gamesPlayed + 1 };
 
@@ -820,7 +823,7 @@ export function useMatch3(mode: Match3Mode = 'light') {
     if (!demoMode) {
       rewards.notifyGameEnded(); // §B2: посчитать конец партии (лайт)
       rewards.sweep({ refreshReminder: true });
-      rewards.grant(GAME_ID, buildM3Snapshot(nextStats, defaultM3Game()));
+      rewards.grant(GAME_ID, buildM3Snapshot(nextStats, defaultM3Game()), prevSnapshot);
     }
 
     persistBoard();

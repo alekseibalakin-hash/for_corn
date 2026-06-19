@@ -407,48 +407,89 @@ describe('m3_maxSpicyLevel — веха глубины «с перчинкой»
     trigger: { stat: 'm3_maxSpicyLevel', op: '>=', value },
   });
 
-  it('GUARD: m3_maxSpicyLevel НЕ per-game — выдаётся, даже если порог был пройден ДО хода', () => {
-    // Если бы стат был в PER_GAME_STATS, prevSnapshot ≥ порога подавил бы выдачу (alreadyCrossed).
-    // Как кумулятивный монотонный — выдаётся (защищён только pending/completed). Это и есть отличие.
+  it('EDGE-ГЕЙТ: m3_maxSpicyLevel НЕ перевыдаётся, если порог уже пройден ДО хода (фикс «ужин каждый заход»)', () => {
+    // prevSnapshot уже ≥ порога ⇒ веха пройдена РАНЕЕ ⇒ не ретро-выдаём. Иначе на КАЖДОМ новом заходе
+    // после первого хода веха-глубина выпадала бы заново (pending не ловит просроченный/несошедшийся купон).
     const res = run([spicy('m3-spicy-3', 3)], defaultProgress(TODAY), {
       gameId: 'm3',
       snapshot: { m3_maxSpicyLevel: 5 },
       prevSnapshot: { m3_maxSpicyLevel: 5 },
     });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'm3-spicy-3', reason: 'alreadyCrossed' });
+  });
+
+  it('её прод-баг: ужин-вершина НЕ выпадает на новом заходе (глубина 26, порог 25 уже пройден)', () => {
+    const res = run([spicy('m3-spicy-25', 25)], defaultProgress(TODAY), {
+      gameId: 'm3',
+      snapshot: { m3_maxSpicyLevel: 26 },
+      prevSnapshot: { m3_maxSpicyLevel: 26 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'm3-spicy-25', reason: 'alreadyCrossed' });
+  });
+
+  it('первое пересечение порога выдаёт веху (новый игрок, prev ниже порога)', () => {
+    const res = run([spicy('m3-spicy-1', 1)], defaultProgress(TODAY), {
+      gameId: 'm3',
+      snapshot: { m3_maxSpicyLevel: 1 },
+      prevSnapshot: { m3_maxSpicyLevel: 0 },
+    });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['m3-spicy-1']);
+  });
+
+  it('веха срабатывает РОВНО на ходе пересечения; ранее пройденные не дублятся (edge-гейт)', () => {
+    const res = run([spicy('m3-spicy-1', 1), spicy('m3-spicy-3', 3), spicy('m3-spicy-5', 5)], defaultProgress(TODAY), {
+      gameId: 'm3',
+      snapshot: { m3_maxSpicyLevel: 3 }, // ход 2→3
+      prevSnapshot: { m3_maxSpicyLevel: 2 },
+    });
+    // только порог, пересечённый ЭТИМ ходом (3); веха 1 заработана раньше (prev≥1), 5 не достигнут.
     expect(res.grants.map((g) => g.achievement.id)).toEqual(['m3-spicy-3']);
   });
 
-  it('веха срабатывает в момент прохождения порогового уровня (снапшот несёт повышенное значение)', () => {
-    const res = run([spicy('m3-spicy-1', 1), spicy('m3-spicy-3', 3), spicy('m3-spicy-5', 5)], defaultProgress(TODAY), {
-      gameId: 'm3',
-      snapshot: { m3_maxSpicyLevel: 3 }, // прошли уровень 3
-      prevSnapshot: { m3_maxSpicyLevel: 2 },
-    });
-    const ids = res.grants.map((g) => g.achievement.id);
-    expect(ids).toContain('m3-spicy-1');
-    expect(ids).toContain('m3-spicy-3');
-    expect(ids).not.toContain('m3-spicy-5'); // глубина 3 < 5
-  });
-
-  it('ретрай/перепрохождение не дублит: completed закрывает навсегда', () => {
+  it('completed закрывает навсегда (на ходе пересечения порога)', () => {
     const res = run([spicy('m3-spicy-3', 3)], { ...defaultProgress(TODAY), completed: ['m3-spicy-3'] }, {
       gameId: 'm3',
-      snapshot: { m3_maxSpicyLevel: 9 },
-      prevSnapshot: { m3_maxSpicyLevel: 8 },
+      snapshot: { m3_maxSpicyLevel: 3 },
+      prevSnapshot: { m3_maxSpicyLevel: 2 }, // пересечение 2→3, но уже completed
     });
     expect(res.grants).toHaveLength(0);
     expect(res.skipped).toContainEqual({ id: 'm3-spicy-3', reason: 'completed' });
   });
 
-  it('живой купон (pending) не дублируется на следующем уровне', () => {
+  it('живой купон (pending) не дублируется на ходе пересечения порога', () => {
     const wallet = [coupon('m3-spicy-3', 's1', NOW + DAY_MS)];
     const res = run([spicy('m3-spicy-3', 3)], defaultProgress(TODAY), {
       gameId: 'm3',
       wallet,
-      snapshot: { m3_maxSpicyLevel: 7 },
-      prevSnapshot: { m3_maxSpicyLevel: 6 },
+      snapshot: { m3_maxSpicyLevel: 3 },
+      prevSnapshot: { m3_maxSpicyLevel: 2 }, // пересечение 2→3, но купон уже в кошельке
     });
     expect(res.grants).toHaveLength(0);
     expect(res.skipped).toContainEqual({ id: 'm3-spicy-3', reason: 'pending' });
+  });
+});
+
+describe('w5 edge-гейт монотонных вех (тот же класс, что фикс глубины — превентивно)', () => {
+  it('w5_maxDailyStreak: веха серии НЕ перевыдаётся, если порог уже пройден', () => {
+    const ach: Achievement = { ...tagged('w5-streak-3', 'w5'), trigger: { stat: 'w5_maxDailyStreak', op: '>=', value: 3 } };
+    const res = run([ach], defaultProgress(TODAY), {
+      gameId: 'w5',
+      snapshot: { w5_maxDailyStreak: 5 },
+      prevSnapshot: { w5_maxDailyStreak: 5 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'w5-streak-3', reason: 'alreadyCrossed' });
+  });
+
+  it('w5_dailyWins: веха выдаётся РОВНО на ходе пересечения порога', () => {
+    const ach: Achievement = { ...tagged('w5-wins-5', 'w5'), trigger: { stat: 'w5_dailyWins', op: '>=', value: 5 } };
+    const res = run([ach], defaultProgress(TODAY), {
+      gameId: 'w5',
+      snapshot: { w5_dailyWins: 5 },
+      prevSnapshot: { w5_dailyWins: 4 },
+    });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['w5-wins-5']);
   });
 });

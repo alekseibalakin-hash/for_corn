@@ -26,10 +26,25 @@ const PER_GAME_STATS = new Set([
   'm3_biggestClear',
 ]);
 
-function triggerUsesPerGameStat(trigger: Trigger): boolean {
-  if (isCondition(trigger)) return PER_GAME_STATS.has(trigger.stat);
-  if (isAllOf(trigger)) return trigger.allOf.some(triggerUsesPerGameStat);
-  if (isAnyOf(trigger)) return trigger.anyOf.some(triggerUsesPerGameStat);
+// Кумулятивные МОНОТОННЫЕ статы-вехи с чётким переходом ВНУТРИ хода (prevSnapshot несёт старое
+// значение, напр. глубина бампится на победе ПЕРЕД grant) — тоже edge-гейтим: веха срабатывает
+// РОВНО на ходе пересечения порога и НЕ перевыдаётся на резюме/новом заходе. Фикс прод-бага: веха
+// глубины m3_maxSpicyLevel (ужин «вершина перчинки») выпадала на КАЖДОМ заходе после первого хода,
+// т.к. держалась ТОЛЬКО на pending, а просроченный/несошедшийся купон pending не закрывал.
+// (dailyStreak/rewardsRedeemed сюда НЕ входят — они меняются ВНЕ хода, edge их бы сломал.)
+const EDGE_MONOTONIC_STATS = new Set([
+  'm3_maxSpicyLevel', // глубина «с перчинкой» (ужин-вершина) — прод-баг, ради которого это и завели
+  // «5 букв»: тот же класс (монотонные, единственный grant в useWordle с prevSnapshot) — закрываем
+  // превентивно, чтобы w5-вехи не перевыдавались на game-end после порога при сошедшем/просроченном купоне.
+  'w5_dailyWins', // всего побед (welcome/5/20)
+  'w5_maxDailyStreak', // серия слова дня (3/7)
+  'w5_bestGuess', // лучшая попытка (≤3)
+]);
+
+function triggerUsesEdgeStat(trigger: Trigger): boolean {
+  if (isCondition(trigger)) return PER_GAME_STATS.has(trigger.stat) || EDGE_MONOTONIC_STATS.has(trigger.stat);
+  if (isAllOf(trigger)) return trigger.allOf.some(triggerUsesEdgeStat);
+  if (isAnyOf(trigger)) return trigger.anyOf.some(triggerUsesEdgeStat);
   return false;
 }
 
@@ -131,11 +146,11 @@ export function evaluateAchievements({
       skipped.push({ id: achievement.id, reason: 'notTriggered' });
       continue;
     }
-    // Edge-triggering per-game вех: порог должен быть пересечён ИМЕННО этим ходом. Если он
-    // уже выполнялся ДО хода (напр. резюм партии с высокой плиткой) — не ретро-выдаём купон.
+    // Edge-triggering вех: порог должен быть пересечён ИМЕННО этим ходом. Если он уже выполнялся ДО
+    // хода (резюм партии с высокой плиткой / новый заход с уже достигнутой глубиной) — не ретро-выдаём.
     if (
       prevSnapshot &&
-      triggerUsesPerGameStat(achievement.trigger) &&
+      triggerUsesEdgeStat(achievement.trigger) &&
       evalTrigger(achievement.trigger, prevSnapshot)
     ) {
       skipped.push({ id: achievement.id, reason: 'alreadyCrossed' });
