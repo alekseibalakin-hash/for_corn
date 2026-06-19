@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   generateLevel,
+  isResumableSlot,
   normalizeMode,
   normalizeSpicy,
   parachute,
@@ -325,6 +326,24 @@ describe('normalizeSpicy / normalizeMode (мягкое чтение, бриф §
     expect(normalizeMode('light')).toBe('light');
     expect(normalizeMode('garbage')).toBeUndefined();
     expect(normalizeMode(undefined)).toBeUndefined();
+  });
+});
+
+describe('isResumableSlot (slot-fix: прод-баг «всегда предлагает L25»)', () => {
+  const slot = (level: number) => ({ level } as unknown as SpicyLevelState);
+  it('резюмит слот СЛЕДУЮЩЕГО непройденного уровня (level === max+1)', () => {
+    expect(isResumableSlot(slot(27), 26)).toBe(true);
+    expect(isResumableSlot(slot(1), 0)).toBe(true); // новый игрок на уровне 1
+  });
+  it('ИГНОРИРУЕТ устаревший слот (level ≤ глубины) — её реальный баг: slot=25 при max=26', () => {
+    expect(isResumableSlot(slot(25), 26)).toBe(false);
+    expect(isResumableSlot(slot(26), 26)).toBe(false); // уровень уже пройден
+  });
+  it('игнорирует слот выше следующего (рассинхрон вперёд)', () => {
+    expect(isResumableSlot(slot(30), 26)).toBe(false);
+  });
+  it('null → false', () => {
+    expect(isResumableSlot(null, 26)).toBe(false);
   });
 });
 

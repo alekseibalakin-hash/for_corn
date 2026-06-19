@@ -554,6 +554,17 @@ export function normalizeSpicy(raw: unknown): SpicyLevelState | null {
   };
 }
 
+/**
+ * Можно ли РЕЗЮМИТЬ сохранённый слот незаконченного уровня? ТОЛЬКО если его уровень — следующий
+ * непройденный (level === maxSpicyLevel + 1). Иначе слот устарел (рассинхрон персиста: глубина ушла
+ * вперёд, а слот завис на УЖЕ пройденном уровне) → игнорируем, чтобы не предлагать «продолжить»
+ * пройденный уровень (прод-баг: slot=25 при maxSpicyLevel=26 → каждый заход звал «продолжить 25»).
+ * Тогда хук стартует maxSpicyLevel+1.
+ */
+export function isResumableSlot(saved: SpicyLevelState | null, maxSpicyLevel: number): boolean {
+  return !!saved && saved.level === maxSpicyLevel + 1;
+}
+
 /** Мягкое чтение режима (форвард-совместимость; в v1 «последний режим» НЕ помним — §9 Q4). */
 export function normalizeMode(raw: unknown): 'light' | 'spicy' | undefined {
   return raw === 'spicy' ? 'spicy' : raw === 'light' ? 'light' : undefined;

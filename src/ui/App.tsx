@@ -8,7 +8,6 @@ import { RedeemCelebration } from './components/RedeemCelebration';
 import { RevealModal } from './components/RevealModal';
 import { VictoryBanner } from './components/VictoryBanner';
 import { Wallet } from './components/Wallet';
-import { DiagPanel } from './DiagPanel';
 
 // Игры грузятся ОТДЕЛЬНЫМИ чанками (DESIGN-HUB §5): хаб стартует лёгким, игры не утяжелят
 // старт. Никаких статических импортов из games/*.
@@ -23,9 +22,6 @@ function Shell() {
   const [view, setView] = useState<View>('hub');
   const [walletOpen, setWalletOpen] = useState(false);
   const now = Date.now();
-
-  // ⚠️ ВРЕМЕННО: диагностик прод-бага глубины (?diag=1). Удалить вместе с фиксом durability.
-  if (new URLSearchParams(window.location.search).get('diag') === '1') return <DiagPanel />;
 
   if (rewards.loading) return <LoadingSplash />;
 

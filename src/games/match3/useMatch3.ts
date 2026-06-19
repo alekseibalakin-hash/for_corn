@@ -31,6 +31,7 @@ import {
 } from './logic';
 import {
   generateLevel,
+  isResumableSlot,
   normalizeSpicy,
   type SpicyGoal,
   type SpicyLevel,
@@ -396,11 +397,15 @@ export function useMatch3(mode: Match3Mode = 'light') {
               : null;
           persistOkRef.current = true;
           const saved = normalizeSpicy(boardP?.spicy);
-          if (saved) {
+          // Резюмим слот ТОЛЬКО если он не устарел (уровень = следующий непройденный). Иначе
+          // (slot.level ≤ глубины — рассинхрон персиста: глубина ушла вперёд, слот завис) игнорируем,
+          // чтобы не предлагать «продолжить» УЖЕ пройденный уровень (прод-баг «всегда L25»).
+          if (saved && isResumableSlot(saved, recoveredStats.maxSpicyLevel)) {
             applyState(saved); // рендерим сохранённый уровень ПОД диалогом резюма
             setResumeChoice(saved); // «Продолжить уровень N / Начать заново»
           } else {
-            startSpicyLevel(recoveredStats.maxSpicyLevel + 1); // первый непройденный уровень
+            startSpicyLevel(recoveredStats.maxSpicyLevel + 1); // следующий непройденный (слот устарел/нет)
+            persistBoard(); // самоисцеление: затереть устаревший слот свежим (как nextLevel/retryLevel/restartLevel)
           }
           setLoading(false);
           scheduleHint();
