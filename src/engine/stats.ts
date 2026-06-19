@@ -68,6 +68,7 @@ export function defaultProgress(today: string): Progress {
     couponDayDate: today,
     onboardingSeen: false,
     victorySeenForCount: undefined,
+    gamesPlayedToday: 0,
   };
 }
 
@@ -100,6 +101,9 @@ export function normalizeProgress(raw: Partial<Progress> | null | undefined, tod
       typeof raw.lastPlayedDate === 'string' ? raw.lastPlayedDate : raw.lastPlayedDate === null ? null : undefined,
     firstPlayedDate:
       typeof raw.firstPlayedDate === 'string' ? raw.firstPlayedDate : raw.firstPlayedDate === null ? null : undefined,
+    // §B2: аддитивная миграция — old progress без полей → 0/null (не undefined). STORAGE_VERSION не трогаем.
+    gamesPlayedToday: typeof raw.gamesPlayedToday === 'number' && raw.gamesPlayedToday >= 0 ? raw.gamesPlayedToday : 0,
+    reverseGiftDate: typeof raw.reverseGiftDate === 'string' ? raw.reverseGiftDate : null,
   };
 }
 

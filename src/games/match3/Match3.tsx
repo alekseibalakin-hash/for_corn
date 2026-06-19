@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, useAnimationControls } from 'framer-motion';
 import { ArrowLeft, Gift, RotateCcw, Trophy } from 'lucide-react';
+import { isExpired } from '../../engine/coupons';
 import { useRewards } from '../../rewards';
 import { ConfirmDialog } from '../../ui/components/ConfirmDialog';
 import { ExpiryBanner } from '../../ui/components/ExpiryBanner';
@@ -324,6 +325,12 @@ function Match3Game({ mode, onBack, onOpenWallet, onExitToModes }: Match3GamePro
 
   if (m3.loading) return <LoadingSplash />;
 
+  // §B1: показываем кнопку «Потратить желание» только если есть живой small/medium купон.
+  const canSpendWish =
+    m3.mode === 'spicy' &&
+    m3.status === 'lost' &&
+    rewards.wallet.some((c) => !isExpired(c, now) && (c.tier === 'small' || c.tier === 'medium'));
+
   const fxCleared = m3.fx?.cleared ?? [];
   const fxDetonated = m3.fx?.detonated ?? [];
   // Координаты блок-клеток (статичный слой). В эндлессе матрица пустая ⇒ список пуст.
@@ -516,6 +523,8 @@ function Match3Game({ mode, onBack, onOpenWallet, onExitToModes }: Match3GamePro
         cancelLabel="В меню"
         onConfirm={m3.retryLevel}
         onCancel={onExitToModes}
+        extraLabel={canSpendWish ? '🌟 Потратить желание (+5 ходов)' : undefined}
+        onExtra={canSpendWish ? m3.spendWishAndContinue : undefined}
       />
       <ConfirmDialog
         show={m3.mode === 'spicy' && !!m3.resumeChoice}

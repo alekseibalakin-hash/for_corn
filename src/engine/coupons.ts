@@ -128,6 +128,26 @@ export function redeemCoupon(wallet: Coupon[], couponId: string, now: number): R
   };
 }
 
+/** §B1: трата купона на +5 ходов продолжить уровень. НЕ растит rewardsRedeemed, НЕ пишет в completed. */
+export function spendCoupon(wallet: Coupon[], couponId: string, now: number): RedeemResult {
+  const coupon = wallet.find((c) => c.id === couponId);
+  if (!coupon) throw new Error(`Купон ${couponId} не найден в кошельке`);
+  return {
+    wallet: wallet.filter((c) => c.id !== couponId),
+    entry: toHistory(coupon, now, 'spent'),
+  };
+}
+
+/**
+ * §B1: первый «тратибельный на желание» купон — live (не сгоревший) тира small ИЛИ medium.
+ * large и именные (они large-тира — гарантировано reservedRewardIds в content) НЕ тратятся:
+ * важные/интересные. Чистая функция ⇒ инвариант покрыт тестом (адверс-ревью #8: раньше жил
+ * в хук-колбэке spendCouponForRetry без единого теста).
+ */
+export function pickSpendableCoupon(wallet: Coupon[], now: number): Coupon | undefined {
+  return wallet.find((c) => !isExpired(c, now) && (c.tier === 'small' || c.tier === 'medium'));
+}
+
 /**
  * Купоны, сгорающие в ближайшее окно (по умолчанию — сутки). Для баннера-напоминания
  * на входе и подсветки «скоро сгорит» (DESIGN §6). Отсортированы по близости конца.

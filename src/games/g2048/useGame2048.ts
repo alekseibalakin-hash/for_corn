@@ -145,6 +145,7 @@ export function useGame2048() {
 
       if (isGameOver(grid)) {
         rewards.sweep(); // сгорание просроченных купонов → история
+        rewards.notifyGameEnded(); // #5 (адверс-ревью): hub-wide счётчик партий для реверс-подарка (§B2)
         haptics.notify('warning');
       }
       persistBoard();

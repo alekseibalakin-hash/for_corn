@@ -80,6 +80,10 @@ export interface Progress extends Partial<GlobalStats> {
   onboardingSeen?: boolean;
   /** При каком числе заданий показан победный баннер (чтобы повторить, если конфиг вырос). */
   victorySeenForCount?: number;
+  /** §B2: сколько партий сыграно сегодня (сбрасывается в полночь вместе с couponDayDate). */
+  gamesPlayedToday?: number;
+  /** §B2: когда последний раз показывали реверс-подарок (YYYY-MM-DD), null = не показывали. */
+  reverseGiftDate?: string | null;
 }
 
 /** Купон в кошельке (DESIGN §6). Детали награды резолвим из каталога по rewardId. */
@@ -94,7 +98,8 @@ export interface Coupon {
   achievementId: string;
 }
 
-export type HistoryReason = 'redeemed' | 'expired';
+/** 'redeemed' — использован; 'expired' — сгорел; 'spent' — потрачен на ретрай (§B1). */
+export type HistoryReason = 'redeemed' | 'expired' | 'spent';
 
 /** Запись истории — без note (экономим байты CloudStorage, DESIGN §7). */
 export interface HistoryEntry {

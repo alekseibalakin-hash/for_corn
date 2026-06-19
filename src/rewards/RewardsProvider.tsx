@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { achievements as allAchievements, rewardById, tierEmoji } from '../content';
+import { achievements as allAchievements, maxEasyPerDayTotal, rewardById, tierEmoji } from '../content';
 import {
   buildGlobalSnapshot,
   defaultProgress,
@@ -7,9 +7,11 @@ import {
   expiringSoon,
   localYMD,
   mergeSnapshot,
+  pickSpendableCoupon,
   presentationForTier,
   readGlobalStats,
   redeemCoupon,
+  spendCoupon,
   sweepExpired,
   type Coupon,
   type GlobalStats,
@@ -20,6 +22,7 @@ import {
 } from '../engine';
 import { haptics, initTelegram } from '../telegram';
 import { createRepository, createStore, STORAGE_VERSION, type GameRepository } from '../storage';
+import { depthMirror } from '../games/match3/depthMirror';
 import type { RedeemCelebration, Reveal } from '../ui/uiTypes';
 import { bootRewards } from './boot';
 
@@ -66,6 +69,8 @@ export interface RewardsApi {
   reminder: Coupon[];
   showVictory: boolean;
   showOnboarding: boolean;
+  /** §B2: реверс-подарок (раз в сутки, после лимита + ≥N партий). */
+  showReverseGift: boolean;
 
   // --- действия ---
   /**
@@ -78,11 +83,17 @@ export interface RewardsApi {
   redeem: (couponId: string) => void;
   /** Перенести просроченные купоны в историю (зовётся на game-over/новой партии). */
   sweep: (opts?: { refreshReminder?: boolean }) => void;
+  /** §B1: потратить первый live small/medium купон на +5 ходов. НЕ растит rewardsRedeemed. */
+  spendCouponForRetry: () => boolean;
+  /** §B2: посчитать завершение партии (gamesPlayedToday++), показать реверс если нужно. */
+  notifyGameEnded: () => void;
   collectReveal: () => void;
   closeRedeem: () => void;
   dismissReminder: () => void;
   dismissOnboarding: () => void;
   dismissVictory: () => void;
+  /** §B2: скрыть реверс-подарок. */
+  dismissReverseGift: () => void;
 }
 
 const RewardsContext = createContext<RewardsApi | null>(null);
@@ -104,6 +115,7 @@ function useRewardsState(): RewardsApi {
   const [revealQueue, setRevealQueue] = useState<Reveal[]>([]);
   const [redeemCelebration, setRedeemCelebration] = useState<RedeemCelebration | null>(null);
   const [reminder, setReminder] = useState<Coupon[]>([]);
+  const [showReverseGift, setShowReverseGift] = useState(false);
 
   // Зеркала для синхронного чтения внутри обработчиков (как в исходном useGame).
   const walletRef = useRef(wallet);
@@ -157,6 +169,7 @@ function useRewardsState(): RewardsApi {
         if (forceReset || ver !== STORAGE_VERSION) {
           await repo.resetState();
           await repo.setVersion(STORAGE_VERSION);
+          depthMirror.clear(); // §п.0: чистим localStorage-зеркало глубины при сбросе
           if (import.meta.env.DEV) {
             console.info('[storage] состояние сброшено →', STORAGE_VERSION, forceReset ? '(ручной ?reset)' : '(смена версии)');
           }
@@ -193,15 +206,22 @@ function useRewardsState(): RewardsApi {
       const globalSnap = buildGlobalSnapshot(readGlobalStats(progressRef.current));
       const snapshot = mergeSnapshot(globalSnap, gameSnapshot);
       const prevSnapshot = prevGameSnapshot ? mergeSnapshot(globalSnap, prevGameSnapshot) : undefined;
-      const evalRes = evaluateAchievements({
-        snapshot,
-        prevSnapshot,
-        progress: progressRef.current,
-        wallet: walletRef.current,
-        now,
-        today,
-        gameId,
-      });
+      let evalRes;
+      try {
+        evalRes = evaluateAchievements({
+          snapshot,
+          prevSnapshot,
+          progress: progressRef.current,
+          wallet: walletRef.current,
+          now,
+          today,
+          gameId,
+        });
+      } catch (err) {
+        // §п.1: исключение в evaluateAchievements (напр. пустой тир) — логируем и НЕ роняем ход.
+        console.warn('[rewards] grant: исключение при оценке ачивок — пропускаем выдачу:', err);
+        return;
+      }
       setProgress(evalRes.progress); // progress меняется всегда (couponDayDate/cooldowns)
       if (evalRes.grants.length) {
         setWallet([...walletRef.current, ...evalRes.grants.map((g) => g.coupon)]);
@@ -264,9 +284,49 @@ function useRewardsState(): RewardsApi {
     [persist],
   );
 
+  // ---- §B1: потратить первый live small/medium купон на +5 ходов продолжить уровень ----
+  const spendCouponForRetry = useCallback((): boolean => {
+    const now = Date.now();
+    const target = pickSpendableCoupon(walletRef.current, now); // #8: вынесено в чистую тестируемую функцию
+    if (!target) return false;
+    const { wallet: nextWallet, entry } = spendCoupon(walletRef.current, target.id, now);
+    setWallet(nextWallet);
+    setHistory([entry, ...historyRef.current]);
+    persist({ wallet: true, history: true });
+    return true;
+  }, [persist]);
+
+  // ---- §B2: посчитать конец партии, проверить условия реверс-подарка ----
+  const REVERSE_GIFT_THRESHOLD = 3; // партий за день после исчерпания лимита
+  const notifyGameEnded = useCallback(() => {
+    const now = Date.now();
+    const today = localYMD(now);
+    const cur = progressRef.current;
+    // #4 (адверс-ревью): day-rollover ЗДЕСЬ же. Сброс easy/games-счётчиков живёт в evaluateAchievements,
+    // а notifyGameEnded в лайте зовётся ДО grant → без этого реверс мог сработать на ВЧЕРАШНИХ счётчиках,
+    // а наш gamesPlayedToday++ затёрся бы последующим grant-rollover. Перекат идемпотентен (по couponDayDate).
+    const rolled = cur.couponDayDate !== today;
+    const baseGames = rolled ? 0 : (cur.gamesPlayedToday ?? 0);
+    const baseEasy = rolled ? 0 : (cur.easyCouponsTotalToday ?? 0);
+    const newGamesPlayedToday = baseGames + 1;
+    const capHit = baseEasy >= maxEasyPerDayTotal;
+    const alreadyShownToday = cur.reverseGiftDate === today;
+    const shouldShow = capHit && newGamesPlayedToday >= REVERSE_GIFT_THRESHOLD && !alreadyShownToday;
+    const nextProgress: Progress = {
+      ...cur,
+      ...(rolled ? { couponDayDate: today, easyCouponsTotalToday: 0, easyCouponsByGameToday: {} } : {}),
+      gamesPlayedToday: newGamesPlayedToday,
+      ...(shouldShow ? { reverseGiftDate: today } : {}),
+    };
+    setProgress(nextProgress);
+    persist({ progress: true });
+    if (shouldShow) setShowReverseGift(true);
+  }, [persist]);
+
   const collectReveal = useCallback(() => setRevealQueue((q) => q.slice(1)), []);
   const closeRedeem = useCallback(() => setRedeemCelebration(null), []);
   const dismissReminder = useCallback(() => setReminder([]), []);
+  const dismissReverseGift = useCallback(() => setShowReverseGift(false), []);
 
   const dismissOnboarding = useCallback(() => {
     setProgress({ ...progressRef.current, onboardingSeen: true });
@@ -295,14 +355,18 @@ function useRewardsState(): RewardsApi {
     reminder,
     showVictory: allCompleted && progress.victorySeenForCount !== TOTAL_ACHIEVEMENTS,
     showOnboarding: !loading && !progress.onboardingSeen,
+    showReverseGift,
     grant,
     redeem,
     sweep,
+    spendCouponForRetry,
+    notifyGameEnded,
     collectReveal,
     closeRedeem,
     dismissReminder,
     dismissOnboarding,
     dismissVictory,
+    dismissReverseGift,
   };
 }
 

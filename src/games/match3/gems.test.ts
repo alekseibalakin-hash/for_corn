@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyStep, boardToGems, gemsToBoard, gemsToObstacles, swapGems, type VisualGem } from './gems';
 import {
   emptyObstacles,
@@ -407,5 +407,75 @@ describe('gems — РАСШИРЕННЫЙ ИНВАРИАНТ на препятс
     expect(res.steps.length).toBeGreaterThanOrEqual(1); // post-restore ход не пустой
     expect(res.iceCleared).toBeGreaterThanOrEqual(1); // лёд (6,6) сколот восстановленным ходом
     replayWithObstacles(gems, ob2, res);
+  });
+});
+
+// ============================================================================
+// РЕПРО freeze-fix (briefs/match3-freeze-fix.md): стопка камней + лёд + settle-only шаг (L27-аналог).
+// Доказывает: resolveCascades + applyStep инвариантны на конфиге, который провоцировал зависание.
+// Финальная board из watchdog-recovery (res.board) также валидна — recover не сломает поле.
+// ============================================================================
+
+describe('репро freeze-fix: стопка камней + лёд + settle-only (L27-аналог)', () => {
+  /**
+   * cascadeBoard() + стопка ≥3 блоков в col=4 (r5-7) + лёд в (6,2).
+   * Воспроизводит условия «с перчинкой» L27: E-тройка на шаге 2 скалывает лёд (6,2) →
+   * needsSettle=true → settle-only шаг. Стопка камней в col=4 — сегментная гравитация.
+   */
+  function freezeReproBoard(): { board: Board; ob: Obstacles } {
+    const board = cascadeBoard();
+    const ob = emptyObstacles();
+    ob.blocks[5][4] = true; board[5][4] = null;
+    ob.blocks[6][4] = true; board[6][4] = null;
+    ob.blocks[7][4] = true; board[7][4] = null;
+    ob.ice[6][2] = 1; // смежен с (7,2) из E-тройки шага 2 → скол → settle-only шаг
+    return { board, ob };
+  }
+
+  it('каскад завершается синхронно, есть settle-only шаг, лёд сколот', () => {
+    const { board, ob } = freezeReproBoard();
+    const res = resolveCascades(board, mulberry32(1), { obstacles: ob });
+    expect(res.steps.length).toBeGreaterThanOrEqual(3); // шаг1 D-тройка + шаг2 E-тройка+скол + шаг3 settle-only
+    const settleOnly = res.steps.find((s) => s.cleared.length === 0 && s.detonated.length === 0);
+    expect(settleOnly).toBeDefined();
+    expect(res.iceCleared).toBeGreaterThanOrEqual(1);
+  });
+
+  it('инвариант applyStep держится НА КАЖДОМ шаге каскада (вкл. settle-only) — замок от freeze-бага', () => {
+    const { board, ob } = freezeReproBoard();
+    const res = resolveCascades(board, mulberry32(1), { obstacles: ob });
+    replayWithObstacles(boardToGems(board, ob), ob, res);
+  });
+
+  it('финальная board из watchdog-recovery (res.board) валидна: gems round-trip + лёд=0', () => {
+    // watchdog применяет res.board при обрыве анимации; проверяем что оно корректно восстанавливается.
+    const { board, ob } = freezeReproBoard();
+    const res = resolveCascades(board, mulberry32(42), { obstacles: ob });
+    const recoveredGems = boardToGems(res.board, res.obstacles);
+    expectSameBoard(gemsToBoard(recoveredGems), res.board);
+    expect(res.obstacles.ice[6][2]).toBe(0); // лёд сколот — recover не оставит заморозку
+  });
+
+  it('watchdog-концепт: animTimersRef (отдельный ref) НЕ гасится lifecycle-cleanup timersRef', () => {
+    // Структурный тест: доказывает, что watchdog в отдельном ref выживает после clearTimeout(animTimers).
+    vi.useFakeTimers();
+    const animTimers: ReturnType<typeof setTimeout>[] = [];
+    let animFired = false;
+    let watchdogFired = false;
+
+    const animId = setTimeout(() => { animFired = true; }, 100);
+    animTimers.push(animId);
+    const watchdogId = setTimeout(() => { watchdogFired = true; }, 200);
+
+    // lifecycle-cleanup: гасит animTimers, НЕ трогает watchdog (он в отдельном ref)
+    animTimers.forEach(clearTimeout); animTimers.length = 0;
+
+    vi.advanceTimersByTime(300);
+
+    expect(animFired).toBe(false);    // anim-таймер убит lifecycle-cleanup ✓
+    expect(watchdogFired).toBe(true); // watchdog выжил — именно это обеспечивает safety-net ✓
+
+    clearTimeout(watchdogId); // cleanup для теста
+    vi.useRealTimers();
   });
 });

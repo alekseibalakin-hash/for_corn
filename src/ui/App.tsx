@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { RewardsProvider, useRewards } from '../rewards';
 import { Hub } from './Hub';
 import { LoadingSplash } from './components/LoadingSplash';
@@ -77,6 +78,39 @@ function Shell() {
       <VictoryBanner show={rewards.showVictory && !rewards.redeemCelebration} onClose={rewards.dismissVictory} />
       {/* Онбординг — один раз при первом входе в хаб. */}
       <Onboarding show={rewards.showOnboarding} onStart={rewards.dismissOnboarding} />
+
+      {/* §B2: Реверс-подарок — тёплая модалка раз в сутки когда много играла. */}
+      <AnimatePresence>
+        {rewards.showReverseGift && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-6 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 12 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-xs rounded-card bg-cream p-5 text-center shadow-lift"
+            >
+              <div className="text-4xl leading-none">🥰</div>
+              <h3 className="mt-3 text-lg font-extrabold text-ink">
+                Вижу, как сильно тебе нравится моя игра
+              </h3>
+              <p className="mt-2 text-sm font-semibold text-muted">
+                Значит, теперь с тебя презентик 😏
+              </p>
+              <button
+                onClick={rewards.dismissReverseGift}
+                className="mt-4 w-full rounded-card bg-primary py-2.5 font-bold text-white active:scale-95 transition"
+              >
+                Хорошо 💋
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

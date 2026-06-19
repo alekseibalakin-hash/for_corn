@@ -36,6 +36,7 @@ import {
   type SpicyLevel,
   type SpicyLevelState,
 } from './levels';
+import { depthMirror } from './depthMirror';
 import {
   buildM3Snapshot,
   commitM3Game,
@@ -168,6 +169,20 @@ export function useMatch3(mode: Match3Mode = 'light') {
   const hintRef = useRef(hint);
   const aliveRef = useRef(true);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // Анимационные таймеры (after()-цепочка): lifecycle-cleanup [repo] НЕ трогает их — только истинный
+  // unmount (empty-deps effect ниже) и явный старт нового уровня/партии. Это корневой фикс зависания:
+  // ре-ран [repo] при setObstacles mid-каскада больше НЕ обрывает after()-цепочку.
+  const animTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // Safety-net watchdog (уровень 1 бриф freeze-fix): финал хода посчитан синхронно ДО анимации.
+  // Если after()-цепочка оборвётся — watchdog применит этот финал (busy не залипнет навсегда).
+  const pendingResolveRef = useRef<{
+    board: Board;
+    obstacles: Obstacles;
+    agg: { scoreGained: number; gemsCleared: number; maxCascade: number; biggestClear: number; iceCleared: number };
+    prevSnapshot: ReturnType<typeof buildM3Snapshot>;
+    isCombo: boolean;
+  } | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setBoard = (v: Board) => ((boardRef.current = v), setBoardState(v));
   const setGems = (v: VisualGem[]) => ((gemsRef.current = v), setGemsState(v));
@@ -213,11 +228,10 @@ export function useMatch3(mode: Match3Mode = 'light') {
 
   const after = useCallback((ms: number, fn: () => void) => {
     const id = setTimeout(() => {
-      // Убираем отработавший таймер, чтобы массив не рос за длинную endless-партию.
-      timersRef.current = timersRef.current.filter((t) => t !== id);
+      animTimersRef.current = animTimersRef.current.filter((t) => t !== id);
       if (aliveRef.current) fn();
     }, ms);
-    timersRef.current.push(id);
+    animTimersRef.current.push(id);
   }, []);
 
   // ---- Релакс-подсказка при простое. Таймер живёт ОТДЕЛЬНО от anim-таймеров (after): его
@@ -326,6 +340,10 @@ export function useMatch3(mode: Match3Mode = 'light') {
     (levelNum: number) => {
       timersRef.current.forEach(clearTimeout);
       timersRef.current = [];
+      animTimersRef.current.forEach(clearTimeout);
+      animTimersRef.current = [];
+      if (watchdogRef.current !== null) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+      pendingResolveRef.current = null;
       clearIdleTimer();
       pendingRetryRef.current = null;
       const lvl = generateLevel(Math.max(1, levelNum), freshSeed());
@@ -333,6 +351,18 @@ export function useMatch3(mode: Match3Mode = 'light') {
     },
     [applyState, clearIdleTimer],
   );
+
+  // Истинный unmount: гасим aliveRef + anim-таймеры + watchdog ТОЛЬКО здесь (empty deps).
+  // Lifecycle-cleanup [repo] ниже НЕ трогает их — ре-ран при смене репо не обрывает after()-цепочку.
+  useEffect(() => {
+    return () => {
+      aliveRef.current = false;
+      animTimersRef.current.forEach(clearTimeout);
+      animTimersRef.current = [];
+      if (watchdogRef.current !== null) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+      pendingResolveRef.current = null;
+    };
+  }, []);
 
   // ---- Загрузка партии. После boot наградного слоя (Shell гейтит на rewards.loading).
   // Награды тут НЕ оцениваем (как 2048): вехи срабатывают на первом ходе. ----
@@ -348,7 +378,17 @@ export function useMatch3(mode: Match3Mode = 'light') {
           const [boardP, statsP] = await Promise.all([repo.loadMatch3Board(), repo.loadMatch3Stats()]);
           if (cancelled) return;
           const loadedStats = normalizeM3Stats(statsP);
-          setStats(loadedStats);
+          // §п.0: read-repair — зеркало пережило быстрое закрытие, CloudStorage отстал → берём max.
+          const mirrorDepth = depthMirror.read();
+          const recoveredDepth = Math.max(loadedStats.maxSpicyLevel, mirrorDepth);
+          const recoveredStats = recoveredDepth > loadedStats.maxSpicyLevel
+            ? { ...loadedStats, maxSpicyLevel: recoveredDepth }
+            : loadedStats;
+          setStats(recoveredStats);
+          if (recoveredDepth > loadedStats.maxSpicyLevel) {
+            // Глубина восстановлена из зеркала — сразу персистируем в CloudStorage.
+            void repo.saveMatch3Stats(recoveredStats).catch((err) => console.warn('[m3] не удалось сохранить восстановленную глубину:', err));
+          }
           // Эхо лайт-слота (bytes как есть) для склейки при персисте; нет валидной board ⇒ лайт-слота нет.
           echoLightRef.current =
             boardP && Array.isArray(boardP.board) && boardP.board.length > 0
@@ -360,7 +400,7 @@ export function useMatch3(mode: Match3Mode = 'light') {
             applyState(saved); // рендерим сохранённый уровень ПОД диалогом резюма
             setResumeChoice(saved); // «Продолжить уровень N / Начать заново»
           } else {
-            startSpicyLevel(loadedStats.maxSpicyLevel + 1); // первый непройденный уровень
+            startSpicyLevel(recoveredStats.maxSpicyLevel + 1); // первый непройденный уровень
           }
           setLoading(false);
           scheduleHint();
@@ -369,15 +409,17 @@ export function useMatch3(mode: Match3Mode = 'light') {
           console.warn('[m3] загрузка «перчинки» не удалась, старт с чистого листа:', err);
           persistOkRef.current = false; // mount-load упал ⇒ НЕ пишем (не рискуем затереть лайт-данные)
           echoLightRef.current = null;
-          setStats(defaultM3Stats());
-          startSpicyLevel(1);
+          // §п.0: при сбое CloudStorage — всё равно читаем зеркало (оно в localStorage, доступно).
+          const mirrorDepth = depthMirror.read();
+          const fallbackStats = mirrorDepth > 0 ? { ...defaultM3Stats(), maxSpicyLevel: mirrorDepth } : defaultM3Stats();
+          setStats(fallbackStats);
+          startSpicyLevel(fallbackStats.maxSpicyLevel + 1);
           setLoading(false);
           scheduleHint();
         }
       })();
       return () => {
         cancelled = true;
-        aliveRef.current = false;
         timersRef.current.forEach(clearTimeout);
         timersRef.current = [];
         clearIdleTimer();
@@ -399,7 +441,6 @@ export function useMatch3(mode: Match3Mode = 'light') {
       scheduleHint();
       return () => {
         cancelled = true;
-        aliveRef.current = false;
         timersRef.current.forEach(clearTimeout);
         timersRef.current = [];
         clearIdleTimer();
@@ -449,7 +490,6 @@ export function useMatch3(mode: Match3Mode = 'light') {
     })();
     return () => {
       cancelled = true;
-      aliveRef.current = false;
       timersRef.current.forEach(clearTimeout);
       timersRef.current = [];
       clearIdleTimer();
@@ -479,7 +519,11 @@ export function useMatch3(mode: Match3Mode = 'light') {
       // m3_combos (level, вживую) + maxSpicyLevel БАМП на победе СТРОГО ПЕРЕД grant (снапшот несёт
       // повышенное значение — иначе веха отстанет на уровень). Максимум монотонен ⇒ ретрай не растит.
       let nextStats = isCombo ? { ...statsRef.current, combos: statsRef.current.combos + 1 } : statsRef.current;
-      if (won) nextStats = { ...nextStats, maxSpicyLevel: Math.max(nextStats.maxSpicyLevel, levelRef.current) };
+      if (won) {
+        nextStats = { ...nextStats, maxSpicyLevel: Math.max(nextStats.maxSpicyLevel, levelRef.current) };
+        // §п.0: синхронная запись зеркала — переживает мгновенное закрытие (в отличие от async CloudStorage).
+        depthMirror.write(nextStats.maxSpicyLevel);
+      }
       if (isCombo || won) setStats(nextStats);
 
       // Если уровень продолжается и ходов нет — room-aware reshuffle (не софт-локим; доброта).
@@ -510,7 +554,10 @@ export function useMatch3(mode: Match3Mode = 'light') {
 
       // Выдача наград (edge через prevSnapshot, как в лайте). На победе nextStats несёт повышенный
       // maxSpicyLevel ⇒ веха глубины срабатывает в момент прохождения порогового уровня.
-      if (!demoMode) rewards.grant(GAME_ID, buildM3Snapshot(nextStats, nextGame), prevSnapshot);
+      if (!demoMode) {
+        rewards.grant(GAME_ID, buildM3Snapshot(nextStats, nextGame), prevSnapshot);
+        if (won || lost) rewards.notifyGameEnded(); // §B2: посчитать конец партии
+      }
       if (isCombo || won) persistStats(); // глубина/комбо durable (монотонно, не теряется)
       persistBoard(); // спайси-слот: снимок уровня / null на победе / ретрай на проигрыше
       if (!won && !lost) scheduleHint(); // под оверлеем победы/поражения подсказку НЕ считаем
@@ -527,6 +574,9 @@ export function useMatch3(mode: Match3Mode = 'light') {
       prevSnapshot: ReturnType<typeof buildM3Snapshot>,
       isCombo: boolean,
     ) => {
+      // Нормальный путь: гасим watchdog (finishMove прибыл раньше него; recover остаётся no-op).
+      if (watchdogRef.current !== null) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+      pendingResolveRef.current = null;
       const prevGame = gameRef.current;
       const nextGame: M3CurrentGame = {
         sessionScore: prevGame.sessionScore + agg.scoreGained,
@@ -587,6 +637,26 @@ export function useMatch3(mode: Match3Mode = 'light') {
         iceCleared: res.iceCleared, // спайси: разморожено льдин за ход (лайт игнорирует — обстаклов нет)
       };
       const steps: CascadeStep[] = res.steps;
+
+      // Safety-net (бриф freeze-fix уровень 1): финал хода посчитан синхронно ДО анимации.
+      // Если after()-цепочка оборвётся mid-каскада, watchdog применит этот финал — busy не залипнет.
+      pendingResolveRef.current = { board: res.board, obstacles: res.obstacles, agg, prevSnapshot, isCombo };
+      const watchdogMs = SWAP_MS + steps.length * (CLEAR_MS + SETTLE_MS) + 5000;
+      watchdogRef.current = setTimeout(() => {
+        const pending = pendingResolveRef.current;
+        if (!pending || !aliveRef.current) return;
+        pendingResolveRef.current = null;
+        watchdogRef.current = null;
+        animTimersRef.current.forEach(clearTimeout);
+        animTimersRef.current = [];
+        setObstacles(pending.obstacles);
+        setBoard(pending.board);
+        setGems(boardToGems(pending.board, pending.obstacles));
+        setFx(null);
+        console.warn('[m3] stuck move recovered', { level: levelRef.current, steps: steps.length });
+        finishMove(pending.board, pending.agg, pending.prevSnapshot, pending.isCombo);
+      }, watchdogMs);
+
       let celebrated = false; // один праздник на ход, даже если крупных шагов несколько
       const playStep = (i: number) => {
         if (i >= steps.length) {
@@ -720,6 +790,10 @@ export function useMatch3(mode: Match3Mode = 'light') {
     }
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
+    animTimersRef.current.forEach(clearTimeout);
+    animTimersRef.current = [];
+    if (watchdogRef.current !== null) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+    pendingResolveRef.current = null;
     clearIdleTimer();
     let nextStats = commitM3Game(statsRef.current, gameRef.current);
     nextStats = { ...nextStats, gamesPlayed: nextStats.gamesPlayed + 1 };
@@ -739,6 +813,7 @@ export function useMatch3(mode: Match3Mode = 'light') {
     setConfirmNewGame(false);
 
     if (!demoMode) {
+      rewards.notifyGameEnded(); // §B2: посчитать конец партии (лайт)
       rewards.sweep({ refreshReminder: true });
       rewards.grant(GAME_ID, buildM3Snapshot(nextStats, defaultM3Game()));
     }
@@ -762,6 +837,10 @@ export function useMatch3(mode: Match3Mode = 'light') {
     if (mode !== 'spicy') return;
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
+    animTimersRef.current.forEach(clearTimeout);
+    animTimersRef.current = [];
+    if (watchdogRef.current !== null) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
+    pendingResolveRef.current = null;
     clearIdleTimer();
     const retry = pendingRetryRef.current;
     if (retry) {
@@ -809,6 +888,30 @@ export function useMatch3(mode: Match3Mode = 'light') {
     scheduleHint();
   }, [scheduleHint]);
 
+  /** §B1: потратить купон-«желание» (small/medium) → +5 ходов и продолжить проигранный уровень. */
+  const spendWishAndContinue = useCallback((): boolean => {
+    // #2 (адверс-ревью): гард от ДВОЙНОЙ траты. statusRef синхронно флипается в 'playing' на первом
+    // вызове ⇒ быстрый второй клик (overlay ещё в DOM на exit-анимации AnimatePresence) отвалится тут.
+    if (mode !== 'spicy' || statusRef.current !== 'lost') return false;
+    const ok = rewards.spendCouponForRetry();
+    if (!ok) return false;
+    setMovesLeft(movesLeftRef.current + 5);
+    setStatus('playing');
+    pendingRetryRef.current = null;
+    // (перепрогон, MEDIUM): lost-ветка finishSpicyMove НЕ решафлит — проигранная доска могла остаться
+    // без валидных свопов. Гарантируем ход, иначе купон сгорел бы на мёртвой доске (зеркало строк 531-534).
+    const obWish = obstaclesRef.current;
+    if (!hasAnyMove(boardRef.current, obWish)) {
+      const settled = reshuffle(boardRef.current, moveRng(), obWish);
+      setBoard(settled);
+      setGems(boardToGems(settled, obWish));
+    }
+    persistBoard(); // #3 (адверс-ревью): статус='playing' ⇒ currentSpicyState() запишет ЖИВОЙ
+    // продолженный раунд (board/progress/+5 ходов), а не свежий ретрай — иначе закрытие аппы откатит.
+    scheduleHint();
+    return true;
+  }, [mode, rewards, scheduleHint, persistBoard]);
+
   return {
     loading,
     board,
@@ -842,6 +945,7 @@ export function useMatch3(mode: Match3Mode = 'light') {
     retryLevel,
     resumeLevel,
     restartLevel,
+    spendWishAndContinue,
   };
 }
 

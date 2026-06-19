@@ -262,6 +262,16 @@ function hasOpenOrthoNeighbor(blocked: boolean[][], iced: boolean[][], r: number
   return false;
 }
 
+/** Сколько у клетки (r,c) открытых орто-соседей (не блок, не лёд). */
+function countOpenOrthoNeighbors(blocked: boolean[][], iced: boolean[][], r: number, c: number): number {
+  let count = 0;
+  for (const n of ortho(r, c)) {
+    if (!inBounds(n.r, n.c)) continue;
+    if (!blocked[n.r][n.c] && !iced[n.r][n.c]) count++;
+  }
+  return count;
+}
+
 function countIceOrthoNeighbors(iced: boolean[][], r: number, c: number): number {
   let n = 0;
   for (const nb of ortho(r, c)) if (inBounds(nb.r, nb.c) && iced[nb.r][nb.c]) n++;
@@ -273,10 +283,11 @@ function countIceOrthoNeighbors(iced: boolean[][], r: number, c: number): number
  *  - БЛОКИ стекаются от пола вверх по столбцу (lowest free row) — НИКОГДА не оставляют подвижный
  *    сегмент под блоком (дыра под блоком не рефиллится, logic.settleColumn). Не выше row 2 (оставляем
  *    верх под рефилл/ходы).
- *  - ЛЁД разрежён: у каждой льдины ≥1 открытый орто-сосед (иначе нечем сколоть); анти-кластер
- *    (адъяцентность льда гейтится `clusterChance`, плюс не допускаем 3+ льдин крестом).
+ *  - ЛЁД разрежён: у каждой льдины ≥`minOpenNeighbors` открытых орто-соседей (анти-дедлок-эвристика:
+ *    для малых уровней ≥2 соседа снижают deadlock — казуальный игрок не «застревает» вдали от льда);
+ *    анти-кластер (адъяцентность льда гейтится `clusterChance`, плюс не допускаем 3+ льдин крестом).
  */
-function placeObstacles(rng: Rng, iceCount: number, blockCount: number, clusterChance: number): RoomLayout {
+function placeObstacles(rng: Rng, iceCount: number, blockCount: number, clusterChance: number, minOpenNeighbors: number = 1): RoomLayout {
   const blocked: boolean[][] = Array.from({ length: SIZE }, () => Array.from({ length: SIZE }, () => false));
   const iced: boolean[][] = Array.from({ length: SIZE }, () => Array.from({ length: SIZE }, () => false));
   const blocks: Coord[] = [];
@@ -302,7 +313,7 @@ function placeObstacles(rng: Rng, iceCount: number, blockCount: number, clusterC
     const adj = countIceOrthoNeighbors(iced, r, c);
     if (adj >= 2) continue; // жёсткий анти-кластер: не строим лёд-кресты/линии
     if (adj === 1 && rng() > clusterChance) continue; // адъяцентность льда — редко (по clusterChance)
-    if (!hasOpenOrthoNeighbor(blocked, iced, r, c)) continue; // нужен сосед, которым сколоть
+    if (countOpenOrthoNeighbors(blocked, iced, r, c) < minOpenNeighbors) continue; // анти-дедлок
     iced[r][c] = true;
     ice.push({ r, c });
   }
@@ -405,7 +416,8 @@ export function parachute(level: number, seed: number): SpicyLevel {
     const aSeed = (seed + attempt * 0x9e3779b1) >>> 0;
     const layoutRng = mulberry32((aSeed ^ 0x27d4eb2f) >>> 0);
     const iceCount = randInt(layoutRng, band.iceMin, band.iceMax);
-    const layout = placeObstacles(layoutRng, iceCount, 0, Math.min(band.clusterChance, 0.15));
+    const minOpenNeighbors = iceCount <= 4 ? 2 : 1;
+    const layout = placeObstacles(layoutRng, iceCount, 0, Math.min(band.clusterChance, 0.15), minOpenNeighbors);
     const lvl = buildLevel(level, aSeed, layout, relaxedBand);
     if (lvl) return lvl;
   }
@@ -416,7 +428,8 @@ export function parachute(level: number, seed: number): SpicyLevel {
     for (let attempt = 0; attempt < 32; attempt++) {
       const aSeed = (seed + attempt * 0x9e3779b1 + (iceTarget * 0x12345)) >>> 0;
       const layoutRng = mulberry32((aSeed ^ 0x27d4eb2f) >>> 0);
-      const layout = placeObstacles(layoutRng, iceTarget, 0, 0.1);
+      const minOpenNeighbors = iceTarget <= 4 ? 2 : 1;
+      const layout = placeObstacles(layoutRng, iceTarget, 0, 0.1, minOpenNeighbors);
       const lvl = buildLevel(level, aSeed, layout, relaxedBand);
       if (lvl) return lvl;
     }
@@ -466,7 +479,9 @@ export function generateLevel(level: number, seed: number): SpicyLevel {
     const layoutRng = mulberry32((aSeed ^ 0x27d4eb2f) >>> 0); // отдельный поток на саму расстановку
     const iceCount = randInt(layoutRng, band.iceMin, band.iceMax);
     const blockCount = randInt(layoutRng, band.blocksMin, band.blocksMax);
-    const layout = placeObstacles(layoutRng, iceCount, blockCount, band.clusterChance);
+    // §п.2: анти-дедлок для ранних уровней — малый лёд требует ≥2 открытых соседей (casual-winrate ↑).
+    const minOpenNeighbors = iceCount <= 4 ? 2 : 1;
+    const layout = placeObstacles(layoutRng, iceCount, blockCount, band.clusterChance, minOpenNeighbors);
     const lvl = buildLevel(level, aSeed, layout, band);
     if (lvl) return lvl;
   }

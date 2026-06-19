@@ -145,13 +145,15 @@ describe('milestone', () => {
     expect(res.skipped.filter((s) => s.reason === 'dailyCap').map((s) => s.id)).toEqual(['m4', 'm5']);
   });
 
-  it('large-веха (rewardTier: large) НЕ ограничивается лимитом лёгких купонов', () => {
+  it('large-веха (rewardTier: large, без rewardId) теперь тоже ограничивается лимитом (isCappedCoupon = !rewardId)', () => {
+    // §0.5: расширяем лимит на ВСЕ тиры без rewardId — иначе 14 large-вех шли мимо лимита.
     const large: Achievement = { ...milestone('big'), rewardTier: 'large' };
     const list = ['m1', 'm2', 'm3', 'm4'].map(milestone).concat(large);
     const res = run(list, defaultProgress(TODAY));
-    // m1..m3 выдаются (easy, per-game = 3); m4 капнут (dailyCap); big (large) выдаётся сверх лимита
-    expect(res.grants.map((g) => g.achievement.id)).toContain('big');
-    expect(res.grants).toHaveLength(4); // m1, m2, m3 + big
+    // m1..m3 выдаются (per-game cap = 3); m4 и big (large, нет rewardId) оба капнут
+    expect(res.grants.map((g) => g.achievement.id)).not.toContain('big');
+    expect(res.grants).toHaveLength(3); // только m1, m2, m3
+    expect(res.skipped.filter((s) => s.reason === 'dailyCap').map((s) => s.id)).toContain('big');
   });
 });
 

@@ -1,5 +1,6 @@
 import type { StatSnapshot } from '../../engine';
 import { M3_STAT_PREFIX } from '../../ui/constants';
+import { MAX_DEPTH } from './depthMirror';
 
 /**
  * Статы Match-3 (Фаза B). Неймспейс `m3_` (DESIGN-HUB §3) — отдельный от 2048, чтобы 25
@@ -70,7 +71,8 @@ export function normalizeM3Stats(raw: Partial<M3CumulativeStats> | null | undefi
     combos: typeof raw.combos === 'number' ? raw.combos : 0,
     // Аддитивная миграция: старый blob жены без maxSpicyLevel → 0. Тройка interface+default+normalize
     // атомарна — забыть поле тут = тихо обнулить глубину на cold load (бриф §5).
-    maxSpicyLevel: typeof raw.maxSpicyLevel === 'number' && raw.maxSpicyLevel > 0 ? raw.maxSpicyLevel : 0,
+    // #1 (адверс-ревью): клампим к MAX_DEPTH (как зеркало) — порченый CloudStorage-blob не пробросит абсурд.
+    maxSpicyLevel: typeof raw.maxSpicyLevel === 'number' && raw.maxSpicyLevel > 0 ? Math.min(raw.maxSpicyLevel, MAX_DEPTH) : 0,
   };
 }
 

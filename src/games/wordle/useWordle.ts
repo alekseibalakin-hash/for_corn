@@ -262,6 +262,7 @@ export function useWordle(mode: W5Mode) {
         }
 
         rewards.grant('w5', buildW5Snapshot(next), buildW5Snapshot(prev));
+        rewards.notifyGameEnded(); // #5 (адверс-ревью): hub-wide счётчик партий для реверс-подарка (§B2)
       }
     });
   }, [input, after, mode, saveDaily, saveStats, rewards]);

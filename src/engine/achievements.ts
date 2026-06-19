@@ -57,9 +57,9 @@ export interface EvaluateParams {
   achievementsList?: Achievement[];
   /** @deprecated Больше не используется движком. Оставлен ради обратной совместимости call-sites. */
   maxChallengeCouponsPerDay?: number;
-  /** Лёгкие купоны (small/medium без rewardId): потолок на игру в сутки. */
+  /** Капируемые купоны (любой тир без rewardId): потолок на игру в сутки. */
   maxEasyPerGamePerDay?: number;
-  /** Лёгкие купоны: потолок по всему хабу в сутки. */
+  /** Капируемые купоны: потолок по всему хабу в сутки. */
   maxEasyPerDayTotal?: number;
   rewardSource?: RewardSource;
 }
@@ -84,12 +84,12 @@ export interface EvaluateResult {
  * Разнообразие: случайный купон не повторяет награду, уже лежащую в кошельке.
  */
 /**
- * Лёгкий купон = small или medium тир, БЕЗ фиксированного rewardId.
- * Large и именные (rewardId) освобождены от дневного потолка.
+ * Капируемый купон = любой тир БЕЗ фиксированного rewardId (п.0.5).
+ * Именные (rewardId: restaurant / fine-dining) освобождены от лимита — они редкие вершины.
+ * Large без rewardId теперь тоже капируется: иначе 14 large-вех шли мимо лимита.
  */
-function isEasyCoupon(a: Achievement): boolean {
-  if (a.rewardId) return false;
-  return a.rewardTier === 'small' || a.rewardTier === 'medium';
+function isCappedCoupon(a: Achievement): boolean {
+  return !a.rewardId;
 }
 
 export function evaluateAchievements({
@@ -164,8 +164,8 @@ export function evaluateAchievements({
       }
     }
 
-    // Двухуровневый лимит лёгких купонов: per-game И hub-total. Капнутый — НЕ идёт на кулдаун.
-    if (isEasyCoupon(achievement)) {
+    // Двухуровневый лимит капируемых купонов: per-game И hub-total. Капнутый — НЕ идёт на кулдаун.
+    if (isCappedCoupon(achievement)) {
       const gameCount = easyCouponsByGameToday[gameId] ?? 0;
       if (gameCount >= maxEasyPerGamePerDay || easyCouponsTotalToday >= maxEasyPerDayTotal) {
         skipped.push({ id: achievement.id, reason: 'dailyCap' });
@@ -184,7 +184,7 @@ export function evaluateAchievements({
     pendingAchievementIds.add(achievement.id);
     liveRewardIds.add(reward.id);
 
-    if (isEasyCoupon(achievement)) {
+    if (isCappedCoupon(achievement)) {
       easyCouponsByGameToday[gameId] = (easyCouponsByGameToday[gameId] ?? 0) + 1;
       easyCouponsTotalToday += 1;
     }
@@ -196,6 +196,8 @@ export function evaluateAchievements({
     easyCouponsTotalToday,
     easyCouponsByGameToday,
     couponDayDate: today,
+    // §B2: сброс счётчика партий в полночь — синхронно со сбросом купонных счётчиков.
+    ...(dayRollover ? { gamesPlayedToday: 0 } : {}),
   };
 
   return { grants, progress: nextProgress, skipped };

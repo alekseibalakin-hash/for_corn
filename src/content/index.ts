@@ -143,6 +143,53 @@ export function validateContent(): string[] {
   return problems;
 }
 
+/**
+ * §A4-тесты: параметрическая версия validateContent для негативных юнит-тестов.
+ * Принимает произвольный набор наград и ачивок; не использует глобальный контент.
+ */
+export function validateContentWith(rewards: Reward[], achs: Achievement[]): string[] {
+  const problems: string[] = [];
+
+  const byId = new Map<string, Reward>();
+  const byTier = new Map<Tier, Reward[]>(TIERS.map((t) => [t, []]));
+  const reserved = new Set<string>(achs.filter((a) => a.rewardId).map((a) => a.rewardId!));
+
+  for (const reward of rewards) {
+    byId.set(reward.id, reward);
+    if (!reserved.has(reward.id)) byTier.get(reward.tier)?.push(reward);
+  }
+
+  for (const tier of TIERS) {
+    if ((byTier.get(tier)?.length ?? 0) === 0 && achs.some((a) => a.rewardTier === tier)) {
+      problems.push(`в тире ${tier} нет ни одной награды (rewardTier некому отдать)`);
+    }
+  }
+
+  const rewardIdFirstUser = new Map<string, string>();
+  for (const ach of achs) {
+    if (ach.rewardId && !byId.has(ach.rewardId)) {
+      problems.push(`achievement ${ach.id}: rewardId «${ach.rewardId}» не найден`);
+    }
+    if (ach.rewardId) {
+      const first = rewardIdFirstUser.get(ach.rewardId);
+      if (first) {
+        problems.push(`[warn] ачивки ${first} и ${ach.id} используют один rewardId «${ach.rewardId}»`);
+      } else {
+        rewardIdFirstUser.set(ach.rewardId, ach.id);
+      }
+    }
+    // Belt-and-suspenders: именная награда не должна быть в случайном тир-пуле (A4).
+    if (ach.rewardId) {
+      const reward = byId.get(ach.rewardId);
+      if (reward && (byTier.get(reward.tier) ?? []).some((r) => r.id === ach.rewardId)) {
+        problems.push(`[warn] именная награда «${ach.rewardId}» (ачивка ${ach.id}) попала в случайный пул тира ${reward.tier} — баг в reservedRewardIds`);
+      }
+    }
+  }
+
+  return problems;
+}
+
 // ПОТОЛОК ЧЕСТНОСТИ (бриф §2.4): глубже не плотнее обстаклами, а туже generosity.
 const SPICY_ICE_CEILING = 28;
 const SPICY_BLOCK_CEILING = 6;

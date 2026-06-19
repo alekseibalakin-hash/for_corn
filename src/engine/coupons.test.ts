@@ -4,9 +4,11 @@ import {
   createCoupon,
   expiringSoon,
   isExpired,
+  pickSpendableCoupon,
   presentationForTier,
   redeemCoupon,
   selectReward,
+  spendCoupon,
   sweepExpired,
   type RewardSource,
 } from './coupons';
@@ -146,6 +148,74 @@ describe('жизненный цикл купона', () => {
     ];
     const soon = expiringSoon(wallet, now);
     expect(soon.map((c) => c.id)).toEqual(['soon', 'tomorrow']);
+  });
+});
+
+describe('spendCoupon (§B1 — трата на ретрай)', () => {
+  it('убирает купон из кошелька и кладёт в историю с reason=spent', () => {
+    const wallet = [coupon({ id: 'a', tier: 'small' }), coupon({ id: 'b', tier: 'medium' })];
+    const { wallet: rest, entry } = spendCoupon(wallet, 'a', 9999);
+    expect(rest.map((c) => c.id)).toEqual(['b']);
+    expect(entry).toMatchObject({ id: 'a', reason: 'spent', resolvedAt: 9999 });
+  });
+
+  it('rewardsRedeemed не растёт (spendCoupon не вызывает addCompleted)', () => {
+    // spendCoupon — это не redeem: купон сжигается на игровую пользу, не как «забрал подарок».
+    // Проверяем, что entry.reason === 'spent', а не 'redeemed' (это и есть гарантия).
+    const { entry } = spendCoupon([coupon({ id: 'x' })], 'x', 0);
+    expect(entry.reason).toBe('spent');
+  });
+
+  it('не трогает large и именные (их надо явно не передавать — берёт по id)', () => {
+    // Логика выбора купона (small/medium) в spendCouponForRetry — на уровне RewardsProvider.
+    // spendCoupon сам по id берёт ЛЮБОЙ переданный (без фильтрации по тиру).
+    const largeCoupon = coupon({ id: 'big', tier: 'large' });
+    // Если вызвать spendCoupon с большим купоном — он уберёт его (контракт: caller решает что давать).
+    const { entry } = spendCoupon([largeCoupon], 'big', 0);
+    expect(entry.reason).toBe('spent');
+  });
+
+  it('бросает на отсутствующем купоне', () => {
+    expect(() => spendCoupon([], 'ghost', 0)).toThrow();
+  });
+});
+
+// #8 (адверс-ревью): инвариант «трата только live small/medium» раньше жил в хук-колбэке без теста.
+// Теперь — чистая pickSpendableCoupon: проверяем, что large/именные/сгоревшие НЕ выбираются.
+describe('pickSpendableCoupon (§B1 — выбор купона на желание)', () => {
+  const now = 5 * DAY_MS;
+  const live = (over: Partial<Coupon>) => coupon({ expiresAt: now + DAY_MS, ...over });
+
+  it('берёт ПЕРВЫЙ live small/medium', () => {
+    const wallet = [live({ id: 'a', tier: 'small' }), live({ id: 'b', tier: 'medium' })];
+    expect(pickSpendableCoupon(wallet, now)?.id).toBe('a');
+  });
+
+  it('НЕ выбирает large (тратятся только small/medium)', () => {
+    expect(pickSpendableCoupon([live({ id: 'big', tier: 'large' })], now)).toBeUndefined();
+  });
+
+  it('НЕ выбирает именные (restaurant/fine-dining — они large-тира, сверх лимита)', () => {
+    const wallet = [
+      live({ id: 'fd', tier: 'large', rewardId: 'fine-dining' }),
+      live({ id: 'rest', tier: 'large', rewardId: 'restaurant' }),
+    ];
+    expect(pickSpendableCoupon(wallet, now)).toBeUndefined();
+  });
+
+  it('пропускает сгоревший small → берёт следующий live medium', () => {
+    const wallet = [coupon({ id: 'dead', tier: 'small', expiresAt: now - 1 }), live({ id: 'm', tier: 'medium' })];
+    expect(pickSpendableCoupon(wallet, now)?.id).toBe('m');
+  });
+
+  it('выбирает small/medium даже если large стоит раньше в списке', () => {
+    const wallet = [live({ id: 'big', tier: 'large' }), live({ id: 's', tier: 'small' })];
+    expect(pickSpendableCoupon(wallet, now)?.id).toBe('s');
+  });
+
+  it('нет подходящего (только large/именные/сгоревшие) → undefined (кнопка «желание» скрыта)', () => {
+    const wallet = [live({ id: 'big', tier: 'large' }), coupon({ id: 'dead', tier: 'small', expiresAt: now - 1 })];
+    expect(pickSpendableCoupon(wallet, now)).toBeUndefined();
   });
 });
 

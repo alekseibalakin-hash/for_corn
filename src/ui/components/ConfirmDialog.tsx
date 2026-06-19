@@ -8,9 +8,12 @@ interface ConfirmDialogProps {
   cancelLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** §B1: опциональная дополнительная кнопка (например «Потратить желание»). */
+  extraLabel?: string;
+  onExtra?: () => void;
 }
 
-export function ConfirmDialog({ show, title, message, confirmLabel, cancelLabel, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ show, title, message, confirmLabel, cancelLabel, onConfirm, onCancel, extraLabel, onExtra }: ConfirmDialogProps) {
   return (
     <AnimatePresence>
       {show && (
@@ -30,19 +33,29 @@ export function ConfirmDialog({ show, title, message, confirmLabel, cancelLabel,
           >
             <h3 className="text-lg font-extrabold text-ink">{title}</h3>
             <p className="mt-1 text-sm font-semibold text-muted">{message}</p>
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={onCancel}
-                className="flex-1 rounded-card bg-board py-2.5 font-bold text-ink active:scale-95 transition"
-              >
-                {cancelLabel}
-              </button>
-              <button
-                onClick={onConfirm}
-                className="flex-1 rounded-card bg-primary py-2.5 font-bold text-white active:scale-95 transition"
-              >
-                {confirmLabel}
-              </button>
+            <div className="mt-4 flex flex-col gap-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={onCancel}
+                  className="flex-1 rounded-card bg-board py-2.5 font-bold text-ink active:scale-95 transition"
+                >
+                  {cancelLabel}
+                </button>
+                <button
+                  onClick={onConfirm}
+                  className="flex-1 rounded-card bg-primary py-2.5 font-bold text-white active:scale-95 transition"
+                >
+                  {confirmLabel}
+                </button>
+              </div>
+              {extraLabel && onExtra && (
+                <button
+                  onClick={onExtra}
+                  className="w-full rounded-card bg-board py-2.5 text-sm font-bold text-ink active:scale-95 transition"
+                >
+                  {extraLabel}
+                </button>
+              )}
             </div>
           </motion.div>
         </motion.div>
