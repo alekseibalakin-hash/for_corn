@@ -19,6 +19,9 @@ const SIZE = GRID_SIZE;
 // КЛЕТКАХ фигуры (floor(offset / TRAY_CELL)), что не зависит от масштаба поля. gap=0 в фигуре ⇒ шаг
 // ровно TRAY_CELL (точная привязка хвата). Разделение клеток — внутренним отступом, не grid-gap.
 const TRAY_CELL = 26;
+// На реальном тач палец перекрывает клетку под собой. Приподнимаем проекцию на DRAG_LIFT рядов ВЫШЕ
+// пальца, чтобы фигура была видна (WYSIWYG сохранён: drop ставит ровно по показанной проекции).
+const DRAG_LIFT = 1;
 
 // Тёплая палитра под подарок: блоки-цели — «карамель» (золото), обычные заполнения — «ягода».
 const FILL_STYLE: React.CSSProperties = {
@@ -138,7 +141,7 @@ function BlocksGame({ onBack, onOpenWallet }: BlocksProps) {
     if (!piece) return;
     const pointer = cellFromPoint(info.point.x, info.point.y);
     if (!pointer) return;
-    const anchorR = pointer.r - grabRef.current.r;
+    const anchorR = pointer.r - grabRef.current.r - DRAG_LIFT; // проекция сидит ВЫШЕ пальца
     const anchorC = pointer.c - grabRef.current.c;
     const valid = bb.canPlaceAt(i, anchorR, anchorC);
     const proj: Projection = { index: i, piece, anchorR, anchorC, valid };
@@ -168,8 +171,9 @@ function BlocksGame({ onBack, onOpenWallet }: BlocksProps) {
       <div className="flex items-center justify-between gap-3">
         <button
           onClick={onBack}
+          disabled={bb.busy}
           aria-label="В меню хаба"
-          className="flex items-center gap-1.5 rounded-card bg-white/70 px-3 py-2 text-sm font-bold text-ink shadow-soft active:scale-95 transition"
+          className="flex items-center gap-1.5 rounded-card bg-white/70 px-3 py-2 text-sm font-bold text-ink shadow-soft active:scale-95 transition disabled:opacity-50"
         >
           <ArrowLeft className="h-4 w-4" />
           Меню

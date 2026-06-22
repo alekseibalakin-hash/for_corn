@@ -31,6 +31,9 @@ import {
   type Grid,
   type Piece,
 } from './logic';
+// Per-game состояние уровня живёт в слоте резюма (счёт/ходы/линии). Импорт значений хелперов +
+// type-only BBCurrentGame; цикла нет (stats.ts не импортит levels.ts — проверено).
+import { defaultBBGame, normalizeBBGame, type BBCurrentGame } from './stats';
 
 // ============================================================================
 // Типы цели и уровня (briefs/blocks-phase1.md §2.1).
@@ -65,6 +68,13 @@ export interface BlockLevelState {
   streamPos: number;
   grid: Grid;
   currentPieces: Piece[];
+  /**
+   * Per-game состояние уровня (счёт/ходы/линии) — восстанавливается при резюме (зеркало match3,
+   * где game персистится в слот доски). Без него HUD-счёт и прогресс челленджей bb-score/lines/moves
+   * обнулялись на возврате в недопройденный уровень. Старые слоты без поля → defaultBBGame (нули):
+   * аддитивная миграция, БЕЗ бампа STORAGE_VERSION.
+   */
+  game: BBCurrentGame;
 }
 
 // ============================================================================
@@ -683,6 +693,9 @@ export function normalizeBlocks(raw: unknown): BlockLevelState | null {
     streamPos: Math.floor(r.streamPos),
     grid: r.grid as Grid,
     currentPieces: r.currentPieces as Piece[],
+    // Аддитивная миграция: слот, записанный до Фазы-2-фикса, не имеет game ⇒ дефолт-нули (мягкое
+    // чтение, как normalizeBBStats). Резюм такого слота просто стартует HUD-счёт с 0 — не порча.
+    game: normalizeBBGame(r.game),
   };
 }
 
@@ -718,6 +731,7 @@ export function blocksStateFromLevel(lvl: BlockLevel): BlockLevelState {
     streamPos: stream.pos(), // === 3 (первый набор вытянут)
     grid: lvl.grid,
     currentPieces: [...firstSet],
+    game: defaultBBGame(), // свежий уровень/ретрай — счёт/ходы/линии с нуля
   };
 }
 

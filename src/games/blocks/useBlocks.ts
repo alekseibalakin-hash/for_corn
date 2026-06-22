@@ -185,6 +185,7 @@ export function useBlocks() {
       streamPos: streamPosRef.current,
       grid: gridRef.current,
       currentPieces: pieces,
+      game: gameRef.current, // per-game счёт/ходы/линии — восстановится на резюме (applyState → setGame)
     };
   }, []);
 
@@ -213,6 +214,7 @@ export function useBlocks() {
     setSetsLeft(st.setsLeft);
     setGoal(st.goal);
     setProgress(st.progress);
+    setGame(st.game); // резюм восстанавливает per-game (счёт/ходы/линии) — иначе HUD-счёт обнулялся
     setGrid(cloneGrid(st.grid));
     // Восстанавливаем трей: фигуры в первые слоты, добиваем null до 3 (стабильные ключи).
     const pieces = st.currentPieces.slice(0, 3);

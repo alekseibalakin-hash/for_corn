@@ -205,6 +205,7 @@ describe('normalizeBlocks', () => {
     streamPos: 3,
     grid: validGrid,
     currentPieces: [{ cells: [{ r: 0, c: 0 }] }],
+    game: { sessionScore: 250, moves: 7, bestLines: 2 },
   };
 
   it('корректный снимок → парсится', () => {
@@ -265,6 +266,25 @@ describe('normalizeBlocks', () => {
     expect(res!.setsLeft).toBe(7);
     expect(res!.progress).toBe(1);
     expect(res!.streamPos).toBe(2);
+  });
+
+  // Правка #1: слот резюма несёт per-game (счёт/ходы/линии). Без этого HUD-счёт обнулялся на возврате.
+  it('per-game (game) переживает чтение слота — резюм восстановит счёт/ходы/линии', () => {
+    const res = normalizeBlocks(validState);
+    expect(res!.game).toEqual({ sessionScore: 250, moves: 7, bestLines: 2 });
+  });
+
+  it('старый слот без game → дефолт-нули (аддитивная миграция, БЕЗ бампа STORAGE_VERSION)', () => {
+    const { game: _omit, ...legacy } = validState; // слот, записанный до Фазы-2-фикса
+    const res = normalizeBlocks(legacy);
+    expect(res).not.toBeNull();
+    expect(res!.game).toEqual({ sessionScore: 0, moves: 0, bestLines: 0 });
+  });
+
+  it('битый game (мусор) → дефолт-нули, не роняет чтение слота', () => {
+    const res = normalizeBlocks({ ...validState, game: 'oops' });
+    expect(res).not.toBeNull();
+    expect(res!.game).toEqual({ sessionScore: 0, moves: 0, bestLines: 0 });
   });
 });
 
@@ -454,6 +474,7 @@ describe('isResumableBlocksSlot — слот резюмим ТОЛЬКО есл�
     streamPos: 3,
     grid: emptyGrid(),
     currentPieces: [{ cells: [{ r: 0, c: 0 }] }],
+    game: { sessionScore: 0, moves: 0, bestLines: 0 },
   });
 
   it('следующий непройденный (level = max+1) → резюмим', () => {
@@ -491,6 +512,7 @@ describe('blocksStateFromLevel — свежий старт/ретрай: пол�
     expect(st.streamPos).toBe(3);
     expect(st.currentPieces).toHaveLength(3);
     expect(st.grid).toEqual(lvl.grid);
+    expect(st.game).toEqual({ sessionScore: 0, moves: 0, bestLines: 0 }); // свежий уровень — счёт с нуля
   });
 
   it('первый набор = первый nextSet() того же seed (игрок получает фигуры солвера)', () => {
