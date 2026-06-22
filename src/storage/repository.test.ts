@@ -8,6 +8,8 @@ import { defaultStats } from '../engine/stats';
 import { defaultM3Game, defaultM3Stats } from '../games/match3/stats';
 import { emptyObstacles, normalizeObstacles, type Board as Match3Board } from '../games/match3/logic';
 import { generateLevel, normalizeSpicy, type SpicyLevelState } from '../games/match3/levels';
+import { blocksStateFromLevel, generateLevel as generateBlocksLevel } from '../games/blocks/levels';
+import { defaultBBStats } from '../games/blocks/stats';
 
 const entry = (i: number): HistoryEntry => ({
   id: `cpn-${i}`,
@@ -158,6 +160,30 @@ describe('repository round-trip', () => {
     await repo.resetState();
     expect(await repo.loadMatch3Board()).toBeNull();
     expect(await repo.loadMatch3Stats()).toBeNull();
+  });
+
+  it('blocks: board/stats round-trip и чистятся в resetState (Фаза 2)', async () => {
+    const repo = createRepository(memoryBackend());
+    const slot = blocksStateFromLevel(generateBlocksLevel(3, 4242));
+    await repo.saveBlocksBoard({ level: slot });
+    await repo.saveBlocksStats({ ...defaultBBStats(), totalScore: 1234, maxLevel: 7 });
+
+    const loadedBoard = await repo.loadBlocksBoard();
+    expect(loadedBoard?.level?.level).toBe(slot.level);
+    expect(loadedBoard?.level?.setsLeft).toBe(slot.setsLeft);
+    const loadedStats = await repo.loadBlocksStats();
+    expect(loadedStats?.totalScore).toBe(1234);
+    expect(loadedStats?.maxLevel).toBe(7);
+
+    await repo.resetState();
+    expect(await repo.loadBlocksBoard()).toBeNull();
+    expect(await repo.loadBlocksStats()).toBeNull();
+  });
+
+  it('blocks: bb_board может хранить null (победа/чистый старт) — грузится без падения', async () => {
+    const repo = createRepository(memoryBackend());
+    await repo.saveBlocksBoard({ level: null });
+    expect((await repo.loadBlocksBoard())?.level ?? null).toBeNull();
   });
 
   it('match3: obstacles round-trip (Комнаты, Фаза 1) — аддитивно, на существующем ключе', async () => {

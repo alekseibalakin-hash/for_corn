@@ -14,8 +14,9 @@ import { Wallet } from './components/Wallet';
 const Game2048 = lazy(() => import('../games/g2048'));
 const Match3 = lazy(() => import('../games/match3'));
 const Wordle = lazy(() => import('../games/wordle'));
+const Blocks = lazy(() => import('../games/blocks'));
 
-type View = 'hub' | 'g2048' | 'm3' | 'w5';
+type View = 'hub' | 'g2048' | 'm3' | 'w5' | 'bb';
 
 function Shell() {
   const rewards = useRewards();
@@ -35,6 +36,7 @@ function Shell() {
             if (id === '2048') setView('g2048');
             else if (id === 'm3') setView('m3');
             else if (id === 'w5') setView('w5');
+            else if (id === 'bb') setView('bb');
           }}
           onOpenWallet={openWallet}
         />
@@ -52,6 +54,11 @@ function Shell() {
       {view === 'w5' && (
         <Suspense fallback={<LoadingSplash />}>
           <Wordle onBack={() => setView('hub')} />
+        </Suspense>
+      )}
+      {view === 'bb' && (
+        <Suspense fallback={<LoadingSplash />}>
+          <Blocks onBack={() => setView('hub')} onOpenWallet={openWallet} />
         </Suspense>
       )}
 

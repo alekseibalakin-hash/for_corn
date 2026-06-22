@@ -3,6 +3,8 @@ import type { Grid } from '../game/types';
 import type { Board as Match3Board, Obstacles } from '../games/match3/logic';
 import type { SpicyLevelState } from '../games/match3/levels';
 import type { M3CumulativeStats, M3CurrentGame } from '../games/match3/stats';
+import type { BlockLevelState } from '../games/blocks/levels';
+import type { BBCumulativeStats } from '../games/blocks/stats';
 import type { W5DailyState, W5Stats } from '../games/wordle/wordle.types';
 import { STORAGE_KEYS, type KVStore } from './types';
 
@@ -34,6 +36,16 @@ export interface PersistedMatch3 {
   obstacles?: Obstacles;
   mode?: 'light' | 'spicy';
   spicy?: SpicyLevelState | null;
+}
+
+/**
+ * Сохранённый незаконченный уровень «Блоков-фигур» (Фаза 2, ключ `bb_board`). У игры СВОИ ключи
+ * (одна — поуровневая — модель, без dual-slot match3), поэтому слот хранит просто снимок уровня
+ * (или null = нет незаконченного: победа/чистый старт). Битый/частичный blob читается мягко
+ * (normalizeBlocks → null ⇒ безопасно начнём новый уровень). STORAGE_VERSION не меняем — аддитивно.
+ */
+export interface PersistedBlocks {
+  level?: BlockLevelState | null;
 }
 
 export function byteLength(str: string): number {
@@ -85,6 +97,12 @@ export interface GameRepository {
   clearMatch3Board(): Promise<void>;
   loadMatch3Stats(): Promise<M3CumulativeStats | null>;
   saveMatch3Stats(stats: M3CumulativeStats): Promise<void>;
+  // --- «Блоки-фигуры» (Фаза 2): свои ключи bb_board / bb_stats (зеркало match3). ---
+  loadBlocksBoard(): Promise<PersistedBlocks | null>;
+  saveBlocksBoard(board: PersistedBlocks): Promise<void>;
+  clearBlocksBoard(): Promise<void>;
+  loadBlocksStats(): Promise<BBCumulativeStats | null>;
+  saveBlocksStats(stats: BBCumulativeStats): Promise<void>;
   loadWallet(): Promise<Coupon[] | null>;
   saveWallet(wallet: Coupon[]): Promise<void>;
   loadHistory(): Promise<HistoryEntry[] | null>;
@@ -114,6 +132,11 @@ export function createRepository(store: KVStore): GameRepository {
     clearMatch3Board: () => store.removeItem(STORAGE_KEYS.match3Board),
     loadMatch3Stats: () => loadJSON<M3CumulativeStats>(store, STORAGE_KEYS.match3Stats),
     saveMatch3Stats: (stats) => saveJSON(store, STORAGE_KEYS.match3Stats, stats),
+    loadBlocksBoard: () => loadJSON<PersistedBlocks>(store, STORAGE_KEYS.bbBoard),
+    saveBlocksBoard: (board) => saveJSON(store, STORAGE_KEYS.bbBoard, board),
+    clearBlocksBoard: () => store.removeItem(STORAGE_KEYS.bbBoard),
+    loadBlocksStats: () => loadJSON<BBCumulativeStats>(store, STORAGE_KEYS.bbStats),
+    saveBlocksStats: (stats) => saveJSON(store, STORAGE_KEYS.bbStats, stats),
     loadWallet: () => loadJSON<Coupon[]>(store, STORAGE_KEYS.wallet),
     saveWallet: (wallet) => saveJSON(store, STORAGE_KEYS.wallet, wallet),
     loadHistory: () => loadJSON<HistoryEntry[]>(store, STORAGE_KEYS.history),
@@ -139,6 +162,9 @@ export function createRepository(store: KVStore): GameRepository {
         // «5 букв»: аддитивные ключи, тоже в ?reset=1.
         store.removeItem(STORAGE_KEYS.w5Daily),
         store.removeItem(STORAGE_KEYS.w5Stats),
+        // «Блоки-фигуры»: аддитивные ключи, тоже в ?reset=1 (зеркало глубины bb_depth_ чистит RewardsProvider).
+        store.removeItem(STORAGE_KEYS.bbBoard),
+        store.removeItem(STORAGE_KEYS.bbStats),
       ]);
     },
   };

@@ -80,11 +80,21 @@ export interface PieceStream {
 
 /**
  * Детерминированный поток фигур на mulberry32(seed). Каждый nextSet() потребляет 3 вызова rng().
- * Зеркало makeStream в match3/logic.ts.
+ * Зеркало makeStream(seed, pos) в match3/logic.ts.
+ *
+ * startPos (Фаза 2, резюм) — сколько фигур уже было вытянуто из ЭТОГО потока: проматываем ровно
+ * столько вызовов rng() вперёд, чтобы следующий nextSet() выдал тот же набор, что и в живой партии
+ * (резюм продолжает ТОТ ЖЕ поток — урок спайси №0 / §2.5 блоков). startPos=0 ⇒ байт-в-байт прежнее
+ * поведение Фазы 1 (доказательство проходимости генератора не затронуто).
  */
-export function makePieceStream(seed: number): PieceStream {
+export function makePieceStream(seed: number, startPos = 0): PieceStream {
   const rng = mulberry32(seed);
   let consumed = 0;
+  // Промотка: воспроизводим ровно ту же последовательность rng(), что уже была съедена.
+  for (let i = 0; i < startPos; i++) {
+    rng();
+    consumed++;
+  }
   const nextPiece = (): Piece => {
     consumed++;
     return PIECE_SET[Math.floor(rng() * PIECE_SET.length)];
@@ -673,6 +683,41 @@ export function normalizeBlocks(raw: unknown): BlockLevelState | null {
     streamPos: Math.floor(r.streamPos),
     grid: r.grid as Grid,
     currentPieces: r.currentPieces as Piece[],
+  };
+}
+
+// ============================================================================
+// Резюм-слот (Фаза 2 — §2.3 briefs/blocks-phase2.md). Зеркало isResumableSlot из match3/levels.ts.
+// ============================================================================
+
+/**
+ * Можно ли РЕЗЮМИТЬ сохранённый слот незаконченного уровня? ТОЛЬКО если его уровень — следующий
+ * непройденный (level === bbMaxLevel + 1). Иначе слот устарел (рассинхрон персиста: глубина ушла
+ * вперёд, а слот завис на УЖЕ пройденном уровне) → игнорируем, чтобы не предлагать «продолжить»
+ * пройденный уровень (выученный прод-баг спайси «всегда предлагает L25»). Тогда хук стартует
+ * bbMaxLevel+1 и затирает устаревший слот свежим (self-heal). НИКОГДА не кидает.
+ */
+export function isResumableBlocksSlot(saved: BlockLevelState | null, bbMaxLevel: number): boolean {
+  return !!saved && saved.level === bbMaxLevel + 1;
+}
+
+/**
+ * Снимок СВЕЖЕГО уровня для старта/ретрая: полный бюджет наборов, нулевой прогресс, ПЕРВЫЙ набор из
+ * потока уже вытянут (streamPos = 3). Зеркало spicyStateFromLevel из useMatch3. Поток детерминирован
+ * seed-ом уровня (на нём же доказана проходимость) — игрок получает ровно те фигуры, что и солвер.
+ */
+export function blocksStateFromLevel(lvl: BlockLevel): BlockLevelState {
+  const stream = makePieceStream(lvl.seed);
+  const firstSet = stream.nextSet();
+  return {
+    level: lvl.level,
+    seed: lvl.seed,
+    setsLeft: lvl.setsBudget,
+    goal: lvl.goal,
+    progress: 0,
+    streamPos: stream.pos(), // === 3 (первый набор вытянут)
+    grid: lvl.grid,
+    currentPieces: [...firstSet],
   };
 }
 

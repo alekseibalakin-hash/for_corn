@@ -493,3 +493,71 @@ describe('w5 edge-гейт монотонных вех (тот же класс, 
     expect(res.grants.map((g) => g.achievement.id)).toEqual(['w5-wins-5']);
   });
 });
+
+describe('bb_maxLevel — веха глубины «Блоков» (level-триггер, edge-гейт встроен С НАЧАЛА, §2.1)', () => {
+  const bb = (id: string, value: number): Achievement => ({
+    ...tagged(id, 'bb'),
+    trigger: { stat: 'bb_maxLevel', op: '>=', value },
+  });
+
+  it('EDGE-ГЕЙТ: bb_maxLevel НЕ перевыдаётся, если порог уже пройден ДО хода (не повторяем прод-баг v18)', () => {
+    // prevSnapshot уже ≥ порога ⇒ веха пройдена РАНЕЕ ⇒ не ретро-выдаём. Без edge-гейта веха-награда
+    // глубины сыпалась бы на КАЖДОМ заходе после первого размещения (pending не ловит просроченный купон).
+    const res = run([bb('bb-depth-3', 3)], defaultProgress(TODAY), {
+      gameId: 'bb',
+      snapshot: { bb_maxLevel: 5 },
+      prevSnapshot: { bb_maxLevel: 5 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'bb-depth-3', reason: 'alreadyCrossed' });
+  });
+
+  it('вершина блоков НЕ выпадает на новом заходе (глубина 26, порог 25 уже пройден)', () => {
+    const res = run([bb('bb-summit-25', 25)], defaultProgress(TODAY), {
+      gameId: 'bb',
+      snapshot: { bb_maxLevel: 26 },
+      prevSnapshot: { bb_maxLevel: 26 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'bb-summit-25', reason: 'alreadyCrossed' });
+  });
+
+  it('первое пересечение порога выдаёт веху (победа уровня 1: prev 0 → snap 1)', () => {
+    const res = run([bb('bb-first', 1)], defaultProgress(TODAY), {
+      gameId: 'bb',
+      snapshot: { bb_maxLevel: 1 },
+      prevSnapshot: { bb_maxLevel: 0 },
+    });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['bb-first']);
+  });
+
+  it('веха срабатывает РОВНО на ходе пересечения; ранее пройденные не дублятся', () => {
+    const res = run([bb('bb-first', 1), bb('bb-depth-3', 3), bb('bb-depth-5', 5)], defaultProgress(TODAY), {
+      gameId: 'bb',
+      snapshot: { bb_maxLevel: 3 }, // победа уровня 2→3
+      prevSnapshot: { bb_maxLevel: 2 },
+    });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['bb-depth-3']);
+  });
+
+  it('bb_score (per-game) edge-гейтится: резюм уровня с высоким счётом не роняет купон на 1-м размещении', () => {
+    const ach: Achievement = { ...challenge('bb-score', 1), game: 'bb', trigger: { stat: 'bb_score', op: '>=', value: 1500 } };
+    const res = run([ach], defaultProgress(TODAY), {
+      gameId: 'bb',
+      snapshot: { bb_score: 1800 },
+      prevSnapshot: { bb_score: 1700 },
+    });
+    expect(res.grants).toHaveLength(0);
+    expect(res.skipped).toContainEqual({ id: 'bb-score', reason: 'alreadyCrossed' });
+  });
+
+  it('bb_lines (per-game) выдаётся РОВНО на ходе пересечения (комбо-линии)', () => {
+    const ach: Achievement = { ...challenge('bb-lines', 1), game: 'bb', trigger: { stat: 'bb_lines', op: '>=', value: 3 } };
+    const res = run([ach], defaultProgress(TODAY), {
+      gameId: 'bb',
+      snapshot: { bb_lines: 3 },
+      prevSnapshot: { bb_lines: 1 },
+    });
+    expect(res.grants.map((g) => g.achievement.id)).toEqual(['bb-lines']);
+  });
+});

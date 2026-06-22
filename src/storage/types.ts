@@ -23,6 +23,8 @@ export const STORAGE_KEYS = {
   match3Stats: 'match3_stats', // ФАЗА B: статы match3 с префиксом m3_
   w5Daily: 'w5_daily', // «5 букв»: ежедневная партия (dateKey + guesses + status)
   w5Stats: 'w5_stats', // «5 букв»: накопленная статистика (w5_ неймспейс)
+  bbBoard: 'bb_board', // «Блоки-фигуры»: незаконченный уровень для резюма (БЕЗ точек, §5 DESIGN-BLOCKS.md)
+  bbStats: 'bb_stats', // «Блоки-фигуры»: cumulative-статы (bb_ неймспейс, монотонная глубина)
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

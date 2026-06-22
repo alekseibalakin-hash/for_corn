@@ -22,7 +22,7 @@ import {
 } from '../engine';
 import { haptics, initTelegram } from '../telegram';
 import { createRepository, createStore, STORAGE_VERSION, type GameRepository } from '../storage';
-import { depthMirror } from '../games/match3/depthMirror';
+import { depthMirror, blocksDepthMirror } from '../games/match3/depthMirror';
 import type { RedeemCelebration, Reveal } from '../ui/uiTypes';
 import { bootRewards } from './boot';
 
@@ -169,7 +169,8 @@ function useRewardsState(): RewardsApi {
         if (forceReset || ver !== STORAGE_VERSION) {
           await repo.resetState();
           await repo.setVersion(STORAGE_VERSION);
-          depthMirror.clear(); // §п.0: чистим localStorage-зеркало глубины при сбросе
+          depthMirror.clear(); // §п.0: чистим localStorage-зеркало глубины (перчинка) при сбросе
+          blocksDepthMirror.clear(); // §2.2 блоков: и зеркало глубины «блоков-фигур» (bb_depth_)
           if (import.meta.env.DEV) {
             console.info('[storage] состояние сброшено →', STORAGE_VERSION, forceReset ? '(ручной ?reset)' : '(смена версии)');
           }

@@ -24,6 +24,11 @@ const PER_GAME_STATS = new Set([
   'm3_combo',
   'm3_moves',
   'm3_biggestClear',
+  // «Блоки-фигуры» (Фаза 2) — сбрасываются с уровнем, восстанавливаются при резюме; edge-гейт не даёт
+  // уронить купон на первом размещении при резюме уровня с уже высоким счётом/линиями.
+  'bb_score',
+  'bb_lines',
+  'bb_moves',
 ]);
 
 // Кумулятивные МОНОТОННЫЕ статы-вехи с чётким переходом ВНУТРИ хода (prevSnapshot несёт старое
@@ -39,6 +44,10 @@ const EDGE_MONOTONIC_STATS = new Set([
   'w5_dailyWins', // всего побед (welcome/5/20)
   'w5_maxDailyStreak', // серия слова дня (3/7)
   'w5_bestGuess', // лучшая попытка (≤3)
+  // «Блоки-фигуры»: глубина bb_maxLevel — ТОТ ЖЕ класс, что m3_maxSpicyLevel. Без edge-гейта веха-
+  // награда глубины выпадала бы на КАЖДОМ заходе (прод-баг v18 «ужин каждый заход»: level-веха без
+  // edge держится только на pending, а просроченный купон pending не ловит). Встроено С НАЧАЛА (§2.1).
+  'bb_maxLevel',
 ]);
 
 function triggerUsesEdgeStat(trigger: Trigger): boolean {

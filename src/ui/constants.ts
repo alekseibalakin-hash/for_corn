@@ -18,6 +18,13 @@ export const BUILD_TAG = 'v18';
  */
 export const M3_STAT_PREFIX = 'm3_';
 
+/**
+ * Неймспейс статов «Блоков-фигур» (DESIGN-BLOCKS.md §6): префикс `bb_` (`bb_score`, `bb_lines`,
+ * `bb_moves`, `bb_bestScore`, `bb_totalScore`, `bb_gamesPlayed`, `bb_maxLevel`). Отдельный от 2048/m3/w5,
+ * чтобы их ачивки не зацепились. Ачивки игры тегируются `game:'bb'` (achievements.json).
+ */
+export const BB_STAT_PREFIX = 'bb_';
+
 /** Плитка игры на хабе. `status:'soon'` — задизейблена («скоро ✨»). */
 export interface GameTile {
   id: string;
@@ -32,4 +39,5 @@ export const GAMES: GameTile[] = [
   { id: '2048', title: '2048 с любовью', subtitle: 'Складывай плитки, собирай подарки ❤️', emoji: '🌽', status: 'play' },
   { id: 'm3', title: 'Match-3', subtitle: 'Собирай тройки и спецфишки ❤️', emoji: '🍓', status: 'play' },
   { id: 'w5', title: '5 букв', subtitle: 'Угадай слово за 6 попыток ❤️', emoji: '🔤', status: 'play' },
+  { id: 'bb', title: 'Блоки', subtitle: 'Складывай фигуры, расчищай блоки ❤️', emoji: '🧩', status: 'play' },
 ];
