@@ -19,17 +19,6 @@ const SIZE = GRID_SIZE;
 // КЛЕТКАХ фигуры (floor(offset / TRAY_CELL)), что не зависит от масштаба поля. gap=0 в фигуре ⇒ шаг
 // ровно TRAY_CELL (точная привязка хвата). Разделение клеток — внутренним отступом, не grid-gap.
 const TRAY_CELL = 26;
-// ТОЛЬКО для тача: палец перекрывает клетку под собой → приподнимаем проекцию на DRAG_LIFT рядов выше
-// пальца (WYSIWYG сохранён: drop ставит ровно по показанной проекции). Для мыши/трекпада подъёма НЕТ —
-// курсор точный, иначе фигура «уезжает» выше курсора (фидбек на десктоп-тесте).
-const DRAG_LIFT = 1;
-
-/** Тип указателя конкретного жеста: 'mouse'|'touch'|'pen'. Мышь/трекпад → 'mouse' (подъём не нужен). */
-function pointerKind(e: MouseEvent | TouchEvent | PointerEvent): string {
-  if ('pointerType' in e && e.pointerType) return e.pointerType;
-  if (typeof TouchEvent !== 'undefined' && e instanceof TouchEvent) return 'touch';
-  return 'mouse';
-}
 
 // Тёплая палитра под подарок: блоки-цели — «карамель» (золото), обычные заполнения — «ягода».
 const FILL_STYLE: React.CSSProperties = {
@@ -103,7 +92,6 @@ function BlocksGame({ onBack, onOpenWallet }: BlocksProps) {
   const gridRef = useRef<HTMLDivElement>(null);
   const pieceRefs = useRef<(HTMLDivElement | null)[]>([]);
   const grabRef = useRef<{ r: number; c: number }>({ r: 0, c: 0 });
-  const pointerKindRef = useRef<string>('mouse'); // тип указателя текущего жеста (подъём только для тача)
   const draggingRef = useRef(false);
   const projectionRef = useRef<Projection | null>(null);
   const [projection, setProjection] = useState<Projection | null>(null);
@@ -131,8 +119,7 @@ function BlocksGame({ onBack, onOpenWallet }: BlocksProps) {
     };
   };
 
-  const onPieceDragStart = (i: number, e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    pointerKindRef.current = pointerKind(e);
+  const onPieceDragStart = (i: number, info: PanInfo) => {
     const piece = bb.tray[i];
     const el = pieceRefs.current[i];
     if (!piece || !el) return;
@@ -151,8 +138,9 @@ function BlocksGame({ onBack, onOpenWallet }: BlocksProps) {
     if (!piece) return;
     const pointer = cellFromPoint(info.point.x, info.point.y);
     if (!pointer) return;
-    const lift = pointerKindRef.current === 'mouse' ? 0 : DRAG_LIFT; // мышь/трекпад — без подъёма; тач — выше пальца
-    const anchorR = pointer.r - grabRef.current.r - lift;
+    // БЕЗ подъёма: схваченная клетка фигуры садится РОВНО под палец/курсор — проекция «на своём месте»
+    // (фидбек жены: смещение тени-проекции вверх не понравилось; фигура должна вставать туда, куда ведёшь).
+    const anchorR = pointer.r - grabRef.current.r;
     const anchorC = pointer.c - grabRef.current.c;
     const valid = bb.canPlaceAt(i, anchorR, anchorC);
     const proj: Projection = { index: i, piece, anchorR, anchorC, valid };
@@ -310,7 +298,7 @@ function BlocksGame({ onBack, onOpenWallet }: BlocksProps) {
                 dragMomentum={false}
                 dragElastic={0.12}
                 whileDrag={{ scale: 1.06 }}
-                onDragStart={(e, info) => onPieceDragStart(i, e, info)}
+                onDragStart={(_e, info) => onPieceDragStart(i, info)}
                 onDrag={(_e, info) => onPieceDrag(i, info)}
                 onDragEnd={() => onPieceDragEnd(i)}
                 className="cursor-grab touch-none active:cursor-grabbing"
