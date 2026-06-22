@@ -1,0 +1,11 @@
+{
+  "_comment": "Кривая сложности «Блоков-фигур» (DESIGN-BLOCKS.md §3). budgetMultiplier × жадный_worst = база бюджета наборов; budgetFloor — аддитивный минимум-подушка; budgetK — потолок setsBudget ≤ target×budgetK. Calibration Раунд 3: budgetFloor убраны спайки (Band3: 38→11); бэнды 4 и 6 подняты (6→12, 20→25) для careless-witness. RULE №1 сохраняется: жадный оракул-гейт + k-fork + parachute.",
+  "bands": [
+    { "maxLevel": 3,    "blocksMin": 2,  "blocksMax": 3,  "clusterChance": 0.1,  "budgetMultiplier": 4.0, "budgetFloor": 10, "budgetK": 18 },
+    { "maxLevel": 6,    "blocksMin": 3,  "blocksMax": 5,  "clusterChance": 0.15, "budgetMultiplier": 3.5, "budgetFloor": 8,  "budgetK": 15 },
+    { "maxLevel": 10,   "blocksMin": 5,  "blocksMax": 7,  "clusterChance": 0.2,  "budgetMultiplier": 3.0, "budgetFloor": 11, "budgetK": 12 },
+    { "maxLevel": 15,   "blocksMin": 7,  "blocksMax": 10, "clusterChance": 0.25, "budgetMultiplier": 2.5, "budgetFloor": 12, "budgetK": 10 },
+    { "maxLevel": 22,   "blocksMin": 7,  "blocksMax": 10, "clusterChance": 0.3,  "budgetMultiplier": 2.2, "budgetFloor": 14, "budgetK": 12 },
+    { "maxLevel": 9999, "blocksMin": 8,  "blocksMax": 10, "clusterChance": 0.35, "budgetMultiplier": 2.0, "budgetFloor": 25, "budgetK": 14 }
+  ]
+}

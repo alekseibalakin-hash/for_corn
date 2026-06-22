@@ -1,4 +1,5 @@
 import achievementsJson from '../../content/achievements.json';
+import blocksJson from '../../content/blocks.json';
 import rewardsJson from '../../content/rewards.json';
 import spicyJson from '../../content/spicy.json';
 import {
@@ -7,6 +8,8 @@ import {
   isCondition,
   type Achievement,
   type AchievementsConfig,
+  type BlocksBand,
+  type BlocksConfig,
   type Reward,
   type RewardsConfig,
   type SpicyBand,
@@ -25,12 +28,20 @@ const OPERATORS = new Set(['>=', '<=', '>', '<', '==']);
 export const rewardsConfig = rewardsJson as unknown as RewardsConfig;
 export const achievementsConfig = achievementsJson as unknown as AchievementsConfig;
 export const spicyConfig = spicyJson as unknown as SpicyConfig;
+export const blocksConfig = blocksJson as unknown as BlocksConfig;
 
 /** Бэнд сложности «перчинки» для уровня: первый бэнд, чей `maxLevel >= level` (бэнды отсортированы). */
 export function spicyBandForLevel(level: number): SpicyBand {
   const bands = spicyConfig.bands;
   for (const band of bands) if (level <= band.maxLevel) return band;
-  return bands[bands.length - 1]; // глубже последнего бэнда — держим самый сложный (sentinel)
+  return bands[bands.length - 1];
+}
+
+/** Бэнд сложности «блоков-фигур» для уровня. */
+export function blocksBandForLevel(level: number): BlocksBand {
+  const bands = blocksConfig.bands;
+  for (const band of bands) if (level <= band.maxLevel) return band;
+  return bands[bands.length - 1];
 }
 
 const rewardsById = new Map<string, Reward>();
@@ -139,6 +150,7 @@ export function validateContent(): string[] {
   }
 
   problems.push(...validateSpicyBands());
+  problems.push(...validateBlocksBands());
 
   return problems;
 }
@@ -218,6 +230,31 @@ function validateSpicyBands(): string[] {
       if (b.iceMin < prev.iceMin || b.iceMax < prev.iceMax) problems.push(`spicy band ${i}: лёд убывает (не монотонно)`);
       if (b.blocksMax < prev.blocksMax) problems.push(`spicy band ${i}: блоки убывают (не монотонно)`);
       if (b.budgetMultiplier > prev.budgetMultiplier) problems.push(`spicy band ${i}: generosity растёт (должна туже)`);
+    }
+    prev = b;
+  }
+  return problems;
+}
+
+// ПОТОЛОК ЧЕСТНОСТИ блоков: больше 16 особых блоков — солвер-гейт резко дорожает.
+const BLOCKS_CEILING = 16;
+
+function validateBlocksBands(): string[] {
+  const problems: string[] = [];
+  const bands = blocksConfig.bands;
+  if (!Array.isArray(bands) || bands.length === 0) return ['blocks: нет ни одного бэнда сложности'];
+  let prev: BlocksBand | null = null;
+  for (let i = 0; i < bands.length; i++) {
+    const b = bands[i];
+    if (b.blocksMin < 1 || b.blocksMax < b.blocksMin) problems.push(`blocks band ${i}: некорректный диапазон блоков`);
+    if (b.budgetMultiplier <= 1) problems.push(`blocks band ${i}: budgetMultiplier должен быть > 1`);
+    if (b.budgetK !== undefined && b.budgetK <= 0) problems.push(`blocks band ${i}: budgetK должен быть > 0`);
+    if (b.clusterChance < 0 || b.clusterChance > 1) problems.push(`blocks band ${i}: clusterChance вне [0,1]`);
+    if (b.blocksMax > BLOCKS_CEILING) problems.push(`blocks band ${i}: blocksMax > потолка честности ${BLOCKS_CEILING}`);
+    if (prev) {
+      if (b.maxLevel <= prev.maxLevel) problems.push(`blocks band ${i}: maxLevel не возрастает`);
+      if (b.blocksMin < prev.blocksMin || b.blocksMax < prev.blocksMax) problems.push(`blocks band ${i}: блоки убывают (не монотонно)`);
+      if (b.budgetMultiplier > prev.budgetMultiplier) problems.push(`blocks band ${i}: generosity растёт (должна убывать)`);
     }
     prev = b;
   }

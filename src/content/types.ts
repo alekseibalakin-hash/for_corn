@@ -109,6 +109,28 @@ export interface SpicyConfig {
   bands: SpicyBand[];
 }
 
+// --- «Блоки-фигуры»: кривая сложности (DESIGN-BLOCKS.md §3) ---
+
+/** Один бэнд сложности «блоков-фигур» по диапазону уровней. */
+export interface BlocksBand {
+  maxLevel: number;
+  /** Сколько особых блоков-целей минимум/максимум на старте. */
+  blocksMin: number;
+  blocksMax: number;
+  /** 0..1 — насколько блоки могут кучковаться. */
+  clusterChance: number;
+  /** Generosity: setsBudget ≥ ceil(worst × multiplier). Всегда > 1, убывает. */
+  budgetMultiplier: number;
+  /** Аддитивный пол: setsBudget = max(worst + floor, ceil(worst × multiplier)). По умолчанию 3. */
+  budgetFloor?: number;
+  /** Абсолютный потолок: setsBudget ≤ target × budgetK. По умолчанию 6. */
+  budgetK?: number;
+}
+
+export interface BlocksConfig {
+  bands: BlocksBand[];
+}
+
 export function isCondition(t: Trigger): t is Condition {
   return 'stat' in t;
 }
