@@ -25,6 +25,7 @@ import { createRepository, createStore, STORAGE_VERSION, type GameRepository } f
 import { depthMirror, blocksDepthMirror } from '../games/match3/depthMirror';
 import type { RedeemCelebration, Reveal } from '../ui/uiTypes';
 import { bootRewards } from './boot';
+import { diagLog } from './diagLog';
 
 const TOTAL_ACHIEVEMENTS = allAchievements.length;
 
@@ -136,7 +137,16 @@ function useRewardsState(): RewardsApi {
       if (!bootOkRef.current) return; // boot-load упал — не затираем её реальные данные дефолтом
       const repo = repoRef.current!;
       const guard = (key: string, p: Promise<unknown>) =>
-        void p.catch((err) => console.warn(`[rewards] не удалось сохранить «${key}»:`, err));
+        void p.then(
+          () => {
+            // Диаг: успех записи кошелька/истории (durability — долетела ли запись до хранилища).
+            if (key === 'wallet' || key === 'history') diagLog.push('save', { key, ok: true });
+          },
+          (err) => {
+            console.warn(`[rewards] не удалось сохранить «${key}»:`, err);
+            diagLog.push('save', { key, ok: false, err: String(err) });
+          },
+        );
       if (keys.wallet) guard('wallet', repo.saveWallet(walletRef.current));
       if (keys.history) guard('history', repo.saveHistory(historyRef.current));
       if (keys.progress) guard('progress', repo.saveProgress(progressRef.current));
@@ -155,6 +165,14 @@ function useRewardsState(): RewardsApi {
       const today = localYMD(now);
       const applyBoot = (input: Parameters<typeof bootRewards>[0]) => {
         const boot = bootRewards(input);
+        // Диаг: что РЕАЛЬНО прочитали на старте. inputWallet=null + bootOk=true ⇒ транзиентная пустота,
+        // которую boot затрёт (persist ниже) — главный подозреваемый «пропадающих наград».
+        diagLog.push('boot', {
+          inputWallet: input.wallet == null ? null : input.wallet.length,
+          walletAfter: boot.wallet.length,
+          history: boot.history.length,
+          bootOk: bootOkRef.current,
+        });
         setWallet(boot.wallet);
         setHistory(boot.history);
         setProgress(boot.progress);
@@ -225,7 +243,16 @@ function useRewardsState(): RewardsApi {
       }
       setProgress(evalRes.progress); // progress меняется всегда (couponDayDate/cooldowns)
       if (evalRes.grants.length) {
+        const before = walletRef.current.length;
         setWallet([...walletRef.current, ...evalRes.grants.map((g) => g.coupon)]);
+        diagLog.push('grant', {
+          game: gameId,
+          added: evalRes.grants.length,
+          ids: evalRes.grants.map((g) => g.coupon.id),
+          tiers: evalRes.grants.map((g) => g.coupon.tier),
+          walletBefore: before,
+          walletAfter: walletRef.current.length,
+        });
         setRevealQueue((q) => [...q, ...evalRes.grants.map(buildReveal)]);
         haptics.notify('success');
         persist({ wallet: true, progress: true });
@@ -255,6 +282,7 @@ function useRewardsState(): RewardsApi {
       setHistory([entry, ...historyRef.current]);
       setProgress(nextProgress);
       setReminder(expiringSoon(nextWallet, now));
+      diagLog.push('redeem', { id: couponId, tier: coupon.tier, walletBefore: walletRef.current.length + 1, walletAfter: nextWallet.length });
       haptics.notify('success');
 
       const reward = rewardById(coupon.rewardId);
@@ -276,6 +304,7 @@ function useRewardsState(): RewardsApi {
       const now = Date.now();
       const swept = sweepExpired(walletRef.current, now);
       if (swept.expired.length) {
+        diagLog.push('sweep', { expired: swept.expired.length, ids: swept.expired.map((e) => e.id), walletBefore: walletRef.current.length, walletAfter: swept.wallet.length });
         setWallet(swept.wallet);
         setHistory([...swept.expired, ...historyRef.current]);
         persist({ wallet: true, history: true });
@@ -291,6 +320,7 @@ function useRewardsState(): RewardsApi {
     const target = pickSpendableCoupon(walletRef.current, now); // #8: вынесено в чистую тестируемую функцию
     if (!target) return false;
     const { wallet: nextWallet, entry } = spendCoupon(walletRef.current, target.id, now);
+    diagLog.push('spend', { id: target.id, tier: target.tier, walletBefore: walletRef.current.length, walletAfter: nextWallet.length });
     setWallet(nextWallet);
     setHistory([entry, ...historyRef.current]);
     persist({ wallet: true, history: true });

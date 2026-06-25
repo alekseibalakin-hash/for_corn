@@ -8,6 +8,8 @@ interface HubProps {
   /** Открыть игру по id (в фазе A играбелен только '2048'). */
   onPlay: (gameId: string) => void;
   onOpenWallet: () => void;
+  /** Скрытый вход в диагностику: тап по версии-футеру (App считает 7 тапов). */
+  onVersionTap?: () => void;
 }
 
 function GameCard({ tile, onPlay }: { tile: GameTile; onPlay: (id: string) => void }) {
@@ -39,7 +41,7 @@ function GameCard({ tile, onPlay }: { tile: GameTile; onPlay: (id: string) => vo
  * «скоро»), вход в общий кошелёк, «выполнено X из N заданий» по всему хабу. Тёплая
  * палитра/Nunito — как в игре. Онбординг показывается оверлеем из App при первом входе.
  */
-export function Hub({ onPlay, onOpenWallet }: HubProps) {
+export function Hub({ onPlay, onOpenWallet, onVersionTap }: HubProps) {
   const rewards = useRewards();
   const now = Date.now();
 
@@ -69,7 +71,7 @@ export function Hub({ onPlay, onOpenWallet }: HubProps) {
         <p className="text-sm font-bold text-muted">
           выполнено {rewards.completedCount} из {rewards.totalAchievements} заданий 💝
         </p>
-        <p className="mt-1 text-[10px] font-semibold text-muted/50">{BUILD_TAG}</p>
+        <p onClick={onVersionTap} className="mt-1 select-none text-[10px] font-semibold text-muted/50">{BUILD_TAG}</p>
       </div>
     </div>
   );

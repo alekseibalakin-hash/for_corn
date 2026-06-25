@@ -1,6 +1,7 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { RewardsProvider, useRewards } from '../rewards';
+import { DiagPanel } from './DiagPanel';
 import { Hub } from './Hub';
 import { LoadingSplash } from './components/LoadingSplash';
 import { Onboarding } from './components/Onboarding';
@@ -22,6 +23,21 @@ function Shell() {
   const rewards = useRewards();
   const [view, setView] = useState<View>('hub');
   const [walletOpen, setWalletOpen] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('diag'),
+  );
+  // Скрытый вход в диагностику: 7 тапов по версии-футеру за 3 сек (или ?diag=1). На её телефоне URL
+  // фиксирован в BotFather, поэтому жест — единственный способ открыть панель прямо у неё.
+  const diagTapsRef = useRef<number[]>([]);
+  const bumpDiag = () => {
+    const t = Date.now();
+    const taps = [...diagTapsRef.current.filter((x) => t - x < 3000), t];
+    diagTapsRef.current = taps;
+    if (taps.length >= 7) {
+      diagTapsRef.current = [];
+      setDiagOpen(true);
+    }
+  };
   const now = Date.now();
 
   if (rewards.loading) return <LoadingSplash />;
@@ -39,6 +55,7 @@ function Shell() {
             else if (id === 'bb') setView('bb');
           }}
           onOpenWallet={openWallet}
+          onVersionTap={bumpDiag}
         />
       )}
       {view === 'g2048' && (
@@ -118,6 +135,8 @@ function Shell() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {diagOpen && <DiagPanel onClose={() => setDiagOpen(false)} />}
     </>
   );
 }
