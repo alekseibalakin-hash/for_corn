@@ -68,6 +68,7 @@ export function DiagPanel({ onClose }: { onClose: () => void }) {
       const over4k = Object.entries(sizes)
         .filter(([, b]) => b > LIMIT_4KB)
         .map(([k, b]) => `${k}=${b}b`);
+      const log = diagLog.read();
 
       const data = {
         ts: new Date(Date.now()).toISOString(),
@@ -89,7 +90,11 @@ export function DiagPanel({ onClose }: { onClose: () => void }) {
         mirrors: { spicyDepth: depthMirror.read(), blocksDepth: blocksDepthMirror.read() },
         sizes,
         over4k: over4k.length ? over4k : 'нет (всё под лимитом)',
-        eventLog: diagLog.read(),
+        // Окно журнала: с какого по какое время покрыты события (старейшее → новейшее).
+        logCoverage: log.length
+          ? { count: log.length, oldest: new Date(log[0].t).toISOString(), newest: new Date(log[log.length - 1].t).toISOString() }
+          : { count: 0 },
+        eventLog: log,
       };
       setDump(JSON.stringify(data, null, 2));
     })();
