@@ -25,6 +25,8 @@ export const STORAGE_KEYS = {
   w5Stats: 'w5_stats', // «5 букв»: накопленная статистика (w5_ неймспейс)
   bbBoard: 'bb_board', // «Блоки-фигуры»: незаконченный уровень для резюма (БЕЗ точек, §5 DESIGN-BLOCKS.md)
   bbStats: 'bb_stats', // «Блоки-фигуры»: cumulative-статы (bb_ неймспейс, монотонная глубина)
+  flowBoard: 'flow_board', // Flow «Соедини фигурки»: незаконченный уровень для резюма (БЕЗ точек, §2.4 flow-phase2)
+  flowStats: 'flow_stats', // Flow: cumulative-статы (fl_ неймспейс, монотонная глубина)
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

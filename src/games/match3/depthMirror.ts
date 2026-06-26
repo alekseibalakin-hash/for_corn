@@ -65,3 +65,6 @@ export const depthMirror = makeDepthMirror('spicy_depth_', MAX_DEPTH);
 
 /** Зеркало глубины «блоков-фигур» (bb_depth_<userId>). Ключи без точек (§5 DESIGN-BLOCKS.md). */
 export const blocksDepthMirror = makeDepthMirror('bb_depth_', MAX_DEPTH);
+
+/** Зеркало глубины Flow «Соедини фигурки» (fl_depth_<userId>). Ключи без точек (§2.2 flow-phase2). */
+export const flowDepthMirror = makeDepthMirror('fl_depth_', MAX_DEPTH);

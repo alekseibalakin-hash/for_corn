@@ -5,6 +5,8 @@ import type { SpicyLevelState } from '../games/match3/levels';
 import type { M3CumulativeStats, M3CurrentGame } from '../games/match3/stats';
 import type { BlockLevelState } from '../games/blocks/levels';
 import type { BBCumulativeStats } from '../games/blocks/stats';
+import type { FlowLevelState } from '../games/flow/levels';
+import type { FLCumulativeStats } from '../games/flow/stats';
 import type { W5DailyState, W5Stats } from '../games/wordle/wordle.types';
 import { STORAGE_KEYS, type KVStore } from './types';
 
@@ -46,6 +48,15 @@ export interface PersistedMatch3 {
  */
 export interface PersistedBlocks {
   level?: BlockLevelState | null;
+}
+
+/**
+ * Сохранённый незаконченный уровень Flow (ключ `flow_board`). Слот хранит FlowLevelState с парами
+ * + путями игрока, или null (победа/чистый старт). Solution НЕ храним (лишний вес). Мягко читается
+ * normalizeFlow → null ⇒ безопасно начнём новый уровень. STORAGE_VERSION не меняем — аддитивно.
+ */
+export interface PersistedFlow {
+  level?: FlowLevelState | null;
 }
 
 export function byteLength(str: string): number {
@@ -103,6 +114,11 @@ export interface GameRepository {
   clearBlocksBoard(): Promise<void>;
   loadBlocksStats(): Promise<BBCumulativeStats | null>;
   saveBlocksStats(stats: BBCumulativeStats): Promise<void>;
+  // --- Flow «Соедини фигурки»: свои ключи flow_board / flow_stats (аддитивные, без точек). ---
+  loadFlowBoard(): Promise<PersistedFlow | null>;
+  saveFlowBoard(board: PersistedFlow): Promise<void>;
+  loadFlowStats(): Promise<FLCumulativeStats | null>;
+  saveFlowStats(stats: FLCumulativeStats): Promise<void>;
   loadWallet(): Promise<Coupon[] | null>;
   saveWallet(wallet: Coupon[]): Promise<void>;
   loadHistory(): Promise<HistoryEntry[] | null>;
@@ -137,6 +153,10 @@ export function createRepository(store: KVStore): GameRepository {
     clearBlocksBoard: () => store.removeItem(STORAGE_KEYS.bbBoard),
     loadBlocksStats: () => loadJSON<BBCumulativeStats>(store, STORAGE_KEYS.bbStats),
     saveBlocksStats: (stats) => saveJSON(store, STORAGE_KEYS.bbStats, stats),
+    loadFlowBoard: () => loadJSON<PersistedFlow>(store, STORAGE_KEYS.flowBoard),
+    saveFlowBoard: (board) => saveJSON(store, STORAGE_KEYS.flowBoard, board),
+    loadFlowStats: () => loadJSON<FLCumulativeStats>(store, STORAGE_KEYS.flowStats),
+    saveFlowStats: (stats) => saveJSON(store, STORAGE_KEYS.flowStats, stats),
     loadWallet: () => loadJSON<Coupon[]>(store, STORAGE_KEYS.wallet),
     saveWallet: (wallet) => saveJSON(store, STORAGE_KEYS.wallet, wallet),
     loadHistory: () => loadJSON<HistoryEntry[]>(store, STORAGE_KEYS.history),
@@ -165,6 +185,9 @@ export function createRepository(store: KVStore): GameRepository {
         // «Блоки-фигуры»: аддитивные ключи, тоже в ?reset=1 (зеркало глубины bb_depth_ чистит RewardsProvider).
         store.removeItem(STORAGE_KEYS.bbBoard),
         store.removeItem(STORAGE_KEYS.bbStats),
+        // Flow «Соедини фигурки»: аддитивные ключи (зеркало глубины fl_depth_ чистит RewardsProvider).
+        store.removeItem(STORAGE_KEYS.flowBoard),
+        store.removeItem(STORAGE_KEYS.flowStats),
       ]);
     },
   };

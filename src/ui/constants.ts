@@ -25,6 +25,13 @@ export const M3_STAT_PREFIX = 'm3_';
  */
 export const BB_STAT_PREFIX = 'bb_';
 
+/**
+ * Неймспейс статов Flow «Соедини фигурки» (DESIGN-FLOW §6): префикс `fl_` (`fl_score`, `fl_moves`,
+ * `fl_bestScore`, `fl_totalScore`, `fl_gamesPlayed`, `fl_maxLevel`). Отдельный от 2048/m3/w5/bb,
+ * чтобы их ачивки не зацепились. Ачивки игры тегируются `game:'fl'` (achievements.json).
+ */
+export const FL_STAT_PREFIX = 'fl_';
+
 /** Плитка игры на хабе. `status:'soon'` — задизейблена («скоро ✨»). */
 export interface GameTile {
   id: string;
@@ -40,4 +47,5 @@ export const GAMES: GameTile[] = [
   { id: 'm3', title: 'Match-3', subtitle: 'Собирай тройки и спецфишки ❤️', emoji: '🍓', status: 'play' },
   { id: 'w5', title: '5 букв', subtitle: 'Угадай слово за 6 попыток ❤️', emoji: '🔤', status: 'play' },
   { id: 'bb', title: 'Блоки', subtitle: 'Складывай фигуры, расчищай блоки ❤️', emoji: '🧩', status: 'play' },
+  { id: 'fl', title: 'Соедини', subtitle: 'Прокладывай цветные пути к фигуркам ❤️', emoji: '🌈', status: 'play' },
 ];

@@ -274,6 +274,14 @@
     {"id":"bb-score-1500","type":"challenge","game":"bb","title":"Чистильщица","description":"Набери 1500 очков за один уровень «Блоков»","trigger":{"stat":"bb_score","op":">=","value":1500},"rewardTier":"small","cooldownDays":1},
     {"id":"bb-score-5000","type":"challenge","game":"bb","title":"Блочный взрыв","description":"Набери 5000 очков за один уровень «Блоков»","trigger":{"stat":"bb_score","op":">=","value":5000},"rewardTier":"medium","cooldownDays":2},
     {"id":"bb-lines-3","type":"challenge","game":"bb","title":"Тройное сожжение 🔥","description":"Сожги 3 линии одним размещением","trigger":{"stat":"bb_lines","op":">=","value":3},"rewardTier":"medium","cooldownDays":1},
-    {"id":"bb-games-20","type":"milestone","game":"bb","title":"Втянулась в блоки","description":"Сыграй 20 уровней «Блоков»","trigger":{"stat":"bb_gamesPlayed","op":">=","value":20},"rewardTier":"small"}
+    {"id":"bb-games-20","type":"milestone","game":"bb","title":"Втянулась в блоки","description":"Сыграй 20 уровней «Блоков»","trigger":{"stat":"bb_gamesPlayed","op":">=","value":20},"rewardTier":"small"},
+
+    {"id":"fl-first","type":"milestone","game":"fl","title":"Первое соединение 🌈","description":"Соедини фигурки на 1-м уровне","trigger":{"stat":"fl_maxLevel","op":">=","value":1},"rewardTier":"small","note":"Каждая пара фигурок — как мы с тобой. Соединены навсегда ❤️"},
+    {"id":"fl-depth-3","type":"milestone","game":"fl","title":"Распутала тропинки","description":"Дойди до уровня 3 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":3},"rewardTier":"small"},
+    {"id":"fl-depth-5","type":"milestone","game":"fl","title":"Пять цветных путей","description":"Дойди до уровня 5 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":5},"rewardTier":"medium"},
+    {"id":"fl-depth-8","type":"milestone","game":"fl","title":"Мастер путей","description":"Дойди до уровня 8 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":8},"rewardTier":"medium"},
+    {"id":"fl-depth-12","type":"milestone","game":"fl","title":"Виртуоз","description":"Дойди до уровня 12 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":12},"rewardTier":"large"},
+    {"id":"fl-depth-18","type":"milestone","game":"fl","title":"Соединяет всё","description":"Дойди до уровня 18 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":18},"rewardTier":"large"},
+    {"id":"fl-summit-25","type":"milestone","game":"fl","title":"Вершина потоков 🌈🏔️","description":"Дойди до уровня 25 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":25},"rewardTier":"large","note":"Все пути ведут к тебе, любимая ❤️"}
   ]
 }

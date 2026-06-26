@@ -16,8 +16,9 @@ const Game2048 = lazy(() => import('../games/g2048'));
 const Match3 = lazy(() => import('../games/match3'));
 const Wordle = lazy(() => import('../games/wordle'));
 const Blocks = lazy(() => import('../games/blocks'));
+const Flow = lazy(() => import('../games/flow'));
 
-type View = 'hub' | 'g2048' | 'm3' | 'w5' | 'bb';
+type View = 'hub' | 'g2048' | 'm3' | 'w5' | 'bb' | 'fl';
 
 function Shell() {
   const rewards = useRewards();
@@ -53,6 +54,7 @@ function Shell() {
             else if (id === 'm3') setView('m3');
             else if (id === 'w5') setView('w5');
             else if (id === 'bb') setView('bb');
+            else if (id === 'fl') setView('fl');
           }}
           onOpenWallet={openWallet}
           onVersionTap={bumpDiag}
@@ -76,6 +78,11 @@ function Shell() {
       {view === 'bb' && (
         <Suspense fallback={<LoadingSplash />}>
           <Blocks onBack={() => setView('hub')} onOpenWallet={openWallet} />
+        </Suspense>
+      )}
+      {view === 'fl' && (
+        <Suspense fallback={<LoadingSplash />}>
+          <Flow onBack={() => setView('hub')} onOpenWallet={openWallet} />
         </Suspense>
       )}
 
