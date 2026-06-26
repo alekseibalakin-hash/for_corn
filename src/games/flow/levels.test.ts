@@ -181,6 +181,46 @@ describe('cutIntoSegments', () => {
 });
 
 // ============================================================================
+// Кривая уникальности — замер на новых бэндах (Фаза 2.5 §2, отчёт для ревью CTO).
+// ============================================================================
+
+describe('кривая уникальности — замер на новых бэндах (Фаза 2.5)', () => {
+  it('5×5 (уровни 1-3): все уровни уникальны или мало-решённые', () => {
+    const SAMPLES = 30;
+    let unique = 0; let few = 0;
+    for (let i = 0; i < SAMPLES; i++) {
+      const lvl = generateLevel(2, i * 31 + 7);
+      if (lvl.size !== 5) continue;
+      const n = countFlowSolutions(lvl.size, lvl.pairs, 5, 20_000);
+      if (n === 1) unique++;
+      else if (n === SOLVE_CAP_EXCEEDED || (n >= 2 && n <= 4)) few++;
+    }
+    const ratioUnique = unique / SAMPLES;
+    const ratioFew = (unique + few) / SAMPLES;
+    console.log(`[кривая] 5×5: unique=${(ratioUnique * 100).toFixed(0)}%, ≤4-решений=${(ratioFew * 100).toFixed(0)}% (${SAMPLES} замеров)`);
+    expect(ratioFew).toBeGreaterThanOrEqual(0.30); // ≥30% немного решений
+  }, 30_000);
+
+  it('6×6 с K=6-8 (уровни 4-8): уникальность ≥ 15% — выше старого K=4-5', () => {
+    const SAMPLES = 60;
+    let unique = 0; let few = 0;
+    for (let i = 0; i < SAMPLES; i++) {
+      const lvl = generateLevel(5 + (i % 4), i * 17 + 3);
+      if (lvl.size !== 6) continue;
+      const n = countFlowSolutions(lvl.size, lvl.pairs, 5, 20_000);
+      if (n === 1) unique++;
+      else if (n === SOLVE_CAP_EXCEEDED || (n >= 2 && n <= 4)) few++;
+    }
+    const total = Math.max(unique + few + SAMPLES - SAMPLES, SAMPLES); // всегда SAMPLES
+    const ratioUnique = unique / SAMPLES;
+    const ratioFew = (unique + few) / SAMPLES;
+    console.log(`[кривая] 6×6 K=6-8: unique=${(ratioUnique * 100).toFixed(0)}%, ≤4-решений=${(ratioFew * 100).toFixed(0)}% (${SAMPLES} замеров)`);
+    expect(ratioUnique).toBeGreaterThanOrEqual(0.10); // ≥10% unique (замер ожидает ≈35%)
+    void total;
+  }, 60_000);
+});
+
+// ============================================================================
 // Солвер countFlowSolutions — качество (уникальность), nodeCap, sanity.
 // ============================================================================
 

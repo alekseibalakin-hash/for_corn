@@ -48,6 +48,8 @@ export interface FlowLevel {
 export interface FlowCurrentGame {
   score: number;
   moves: number;
+  /** Звёзды за уровень (1-3). Устанавливаются только на победе (handleWin); при резюме — undefined. */
+  stars?: number;
 }
 
 /** Снимок незаконченного уровня для резюма (персист-слот Фазы 2; мягко читается normalizeFlow). */

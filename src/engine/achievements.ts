@@ -55,6 +55,10 @@ const EDGE_MONOTONIC_STATS = new Set([
   // Flow «Соедини фигурки»: тот же класс — монотонная глубина, единственный grant-сайт на победе
   // уровня с prevSnapshot. Без edge-гейта веха-награда выпадала бы на каждом заходе (§2.1 flow-phase2).
   'fl_maxLevel',
+  // Фаза 2.5: звёздные счётчики — монотонные кумулятивные, edge-гейт предотвращает перевыдачу
+  // при заходе (тот же класс, что fl_maxLevel и m3_maxSpicyLevel).
+  'fl_totalStars',
+  'fl_perfectCount',
 ]);
 
 function triggerUsesEdgeStat(trigger: Trigger): boolean {

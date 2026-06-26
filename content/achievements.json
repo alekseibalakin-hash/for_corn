@@ -282,6 +282,20 @@
     {"id":"fl-depth-8","type":"milestone","game":"fl","title":"Мастер путей","description":"Дойди до уровня 8 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":8},"rewardTier":"medium"},
     {"id":"fl-depth-12","type":"milestone","game":"fl","title":"Виртуоз","description":"Дойди до уровня 12 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":12},"rewardTier":"large"},
     {"id":"fl-depth-18","type":"milestone","game":"fl","title":"Соединяет всё","description":"Дойди до уровня 18 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":18},"rewardTier":"large"},
-    {"id":"fl-summit-25","type":"milestone","game":"fl","title":"Вершина потоков 🌈🏔️","description":"Дойди до уровня 25 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":25},"rewardTier":"large","note":"Все пути ведут к тебе, любимая ❤️"}
+    {"id":"fl-summit-25","type":"milestone","game":"fl","title":"Вершина потоков 🌈🏔️","description":"Дойди до уровня 25 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":25},"rewardTier":"large","note":"Все пути ведут к тебе, любимая ❤️"},
+
+    {"id":"fl-depth-35","type":"milestone","game":"fl","title":"Ветеран потоков","description":"Дойди до уровня 35 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":35},"rewardTier":"large"},
+    {"id":"fl-depth-50","type":"milestone","game":"fl","title":"Полсотни путей","description":"Дойди до уровня 50 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":50},"rewardTier":"large"},
+    {"id":"fl-depth-75","type":"milestone","game":"fl","title":"Мастер-проводник","description":"Дойди до уровня 75 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":75},"rewardTier":"large"},
+    {"id":"fl-depth-100","type":"milestone","game":"fl","title":"Сотня соединений 🌈💯","description":"Дойди до уровня 100 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":100},"rewardId":"any-wishes-day","note":"Сто уровней — сто путей к моему сердцу. Ты непобедима, любимая ❤️"},
+    {"id":"fl-depth-150","type":"milestone","game":"fl","title":"Философ путей","description":"Дойди до уровня 150 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":150},"rewardTier":"large"},
+    {"id":"fl-depth-200","type":"milestone","game":"fl","title":"Легенда соединений","description":"Дойди до уровня 200 в «Соедини фигурки»","trigger":{"stat":"fl_maxLevel","op":">=","value":200},"rewardTier":"large"},
+
+    {"id":"fl-stars-50","type":"milestone","game":"fl","title":"Звёздный старт ⭐","description":"Собери 50 звёзд в «Соедини фигурки»","trigger":{"stat":"fl_totalStars","op":">=","value":50},"rewardTier":"small"},
+    {"id":"fl-stars-150","type":"milestone","game":"fl","title":"Звёздная дорожка","description":"Собери 150 звёзд в «Соедини фигурки»","trigger":{"stat":"fl_totalStars","op":">=","value":150},"rewardTier":"medium"},
+    {"id":"fl-stars-300","type":"milestone","game":"fl","title":"Три сотни звёзд ✨","description":"Собери 300 звёзд в «Соедини фигурки»","trigger":{"stat":"fl_totalStars","op":">=","value":300},"rewardTier":"large"},
+
+    {"id":"fl-perfect-10","type":"milestone","game":"fl","title":"Перфекционист","description":"Пройди 10 уровней идеально — за K штрихов","trigger":{"stat":"fl_perfectCount","op":">=","value":10},"rewardTier":"medium","note":"Безупречные пути — как ты сама ❤️"},
+    {"id":"fl-perfect-30","type":"milestone","game":"fl","title":"Мастер идеальных путей","description":"Пройди 30 уровней идеально — за K штрихов","trigger":{"stat":"fl_perfectCount","op":">=","value":30},"rewardTier":"large"}
   ]
 }

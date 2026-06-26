@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft, Cat, Cherry, Cloud, Droplet, Flower2, Gift, Heart, Key,
   Leaf, Moon, RotateCcw, Snowflake, Star, Sun,
@@ -28,6 +29,91 @@ const FIGURE_ICONS: Record<string, React.FC<LucideProps>> = {
   snowflake: Snowflake,
   key: Key,
 };
+
+/** Оверлей победы со звёздами (Фаза 2.5 §1). Отдельный компонент — не зависит от ConfirmDialog. */
+function FlowWinOverlay({
+  level,
+  stars,
+  parK,
+  onNext,
+  onMenu,
+}: {
+  level: number;
+  stars: number;
+  parK: number;
+  onNext: () => void;
+  onMenu: () => void;
+}) {
+  const filledColor = '#f4b13d'; // amber-400
+  const emptyColor = 'rgba(0,0,0,0.12)';
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-40 flex items-center justify-center bg-ink/30 p-6 backdrop-blur-sm"
+      >
+        <motion.div
+          initial={{ scale: 0.9, y: 12 }}
+          animate={{ scale: 1, y: 0 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          className="w-full max-w-xs rounded-card bg-cream p-5 text-center shadow-lift"
+        >
+          <h3 className="text-lg font-extrabold text-ink">Уровень {level} пройден! 🌈</h3>
+
+          {/* Звёзды — крупно и празднично */}
+          <div className="mt-2 flex justify-center gap-1">
+            {[1, 2, 3].map((n) => (
+              <Star
+                key={n}
+                className="h-9 w-9"
+                style={{ color: n <= stars ? filledColor : emptyColor, fill: n <= stars ? filledColor : emptyColor }}
+                strokeWidth={0}
+              />
+            ))}
+          </div>
+
+          {stars === 3 && (
+            <p className="mt-1 text-sm font-bold" style={{ color: filledColor }}>
+              Идеально! ✨ Все {parK} пар одним штрихом!
+            </p>
+          )}
+          {stars === 2 && (
+            <p className="mt-1 text-xs font-semibold text-muted">
+              Хорошо! Попробуй уложиться в {parK} штрихов для ★★★
+            </p>
+          )}
+          {stars === 1 && (
+            <p className="mt-1 text-xs font-semibold text-muted">
+              Пройдено! Цель на 3★ — всего {parK} штрихов
+            </p>
+          )}
+
+          <p className="mt-2 text-sm font-semibold text-muted">
+            Все пары соединены и поле заполнено 💛
+          </p>
+
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={onMenu}
+              className="flex-1 rounded-card bg-board py-2.5 font-bold text-ink active:scale-95 transition"
+            >
+              В меню
+            </button>
+            <button
+              onClick={onNext}
+              className="flex-1 rounded-card bg-primary py-2.5 font-bold text-white active:scale-95 transition"
+            >
+              Дальше ▶
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 interface FlowProps {
   onBack: () => void;
@@ -228,7 +314,7 @@ function FlowGame({ onBack, onOpenWallet }: FlowProps) {
 
       <ExpiryBanner reminder={rewards.reminder} now={now} onDismiss={rewards.dismissReminder} />
 
-      {/* HUD: уровень / соединено K/всего / «Заново». */}
+      {/* HUD: уровень / соединено K/всего / par K / «Заново». */}
       <div className="flex items-center justify-between gap-2">
         <div className="rounded-card bg-board px-4 py-1.5 text-center">
           <div className="text-[0.65rem] font-bold uppercase tracking-wide text-muted">Уровень</div>
@@ -240,6 +326,11 @@ function FlowGame({ onBack, onOpenWallet }: FlowProps) {
             <span className="text-lg font-extrabold leading-tight text-ink">
               {connectedCount}/{pairs.length}
             </span>
+          </div>
+          {/* par K — подсказка-цель: 3★ = ровно K штрихов (Фаза 2.5 §1). */}
+          <div className="rounded-card bg-board px-2.5 py-1.5 text-center">
+            <div className="text-[0.55rem] font-bold uppercase tracking-wide text-muted">par</div>
+            <div className="text-sm font-extrabold leading-tight text-ink">{pairs.length}</div>
           </div>
           <button
             onClick={fl.requestRestart}
@@ -351,17 +442,18 @@ function FlowGame({ onBack, onOpenWallet }: FlowProps) {
       <p className="text-center text-[10px] font-semibold text-muted/50">{BUILD_TAG}</p>
 
       {/* ОВЕРЛЕИ.
-          Победа: «Дальше» или «В меню». Меню ДОСТУПНО сразу (победа→grant синхронна: нет busy/прожига —
-          гонки нет; §2.6 бриф). Резюм: «Продолжить / Заново». Перезапуск: подтверждение из HUD. */}
-      <ConfirmDialog
-        show={fl.status === 'won'}
-        title={`Уровень ${fl.level} пройден! 🌈`}
-        message="Все пары соединены и поле заполнено 💛 Впереди уровень посложнее — продолжим?"
-        confirmLabel="Дальше ▶"
-        cancelLabel="В меню"
-        onConfirm={fl.nextLevel}
-        onCancel={onBack}
-      />
+          Победа: кастомный FlowWinOverlay со звёздами (Фаза 2.5 §1). Меню ДОСТУПНО сразу
+          (победа→grant синхронна: нет busy/прожига — гонки нет; §2.6 бриф).
+          Резюм: «Продолжить / Заново». Перезапуск: подтверждение из HUD. */}
+      {fl.status === 'won' && (
+        <FlowWinOverlay
+          level={fl.level}
+          stars={fl.lastWinStars}
+          parK={fl.pairs.length}
+          onNext={fl.nextLevel}
+          onMenu={onBack}
+        />
+      )}
       <ConfirmDialog
         show={!!fl.resumeChoice}
         title={`Продолжить уровень ${fl.resumeChoice?.level ?? ''}?`}

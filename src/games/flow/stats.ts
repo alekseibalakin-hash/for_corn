@@ -20,6 +20,10 @@ export interface FLCumulativeStats {
    * выдаётся при пересечении порога; ретрай/перепрохождение максимум не растят ⇒ молчат.
    */
   maxLevel: number;
+  /** Сумма звёзд за все уровни (1-3 за уровень; монотонная — EDGE_MONOTONIC_STATS). Фаза 2.5. */
+  totalStars: number;
+  /** Число уровней пройденных идеально (3★, moves===K). Монотонная — EDGE_MONOTONIC_STATS. Фаза 2.5. */
+  perfectCount: number;
 }
 
 // Ключи снапшота из FL_STAT_PREFIX — чтобы префикс совпал с PER_GAME_STATS/EDGE_MONOTONIC_STATS
@@ -31,10 +35,12 @@ export const FL_KEYS = {
   totalScore: `${FL_STAT_PREFIX}totalScore`,
   gamesPlayed: `${FL_STAT_PREFIX}gamesPlayed`,
   maxLevel: `${FL_STAT_PREFIX}maxLevel`,
+  totalStars: `${FL_STAT_PREFIX}totalStars`,
+  perfectCount: `${FL_STAT_PREFIX}perfectCount`,
 } as const;
 
 export function defaultFLStats(): FLCumulativeStats {
-  return { totalScore: 0, bestScore: 0, gamesPlayed: 0, maxLevel: 0 };
+  return { totalScore: 0, bestScore: 0, gamesPlayed: 0, maxLevel: 0, totalStars: 0, perfectCount: 0 };
 }
 
 export function defaultFLGame(): FlowCurrentGame {
@@ -51,6 +57,9 @@ export function normalizeFLStats(raw: Partial<FLCumulativeStats> | null | undefi
     gamesPlayed: typeof raw.gamesPlayed === 'number' ? raw.gamesPlayed : 0,
     // Аддитивная миграция + клампинг к MAX_DEPTH (порченый CloudStorage-blob не пробросит абсурд).
     maxLevel: typeof raw.maxLevel === 'number' && raw.maxLevel > 0 ? Math.min(raw.maxLevel, MAX_DEPTH) : 0,
+    // Аддитивная миграция Фазы 2.5: старый blob без этих полей → 0 (не undefined/не падение).
+    totalStars: typeof raw.totalStars === 'number' && raw.totalStars >= 0 ? raw.totalStars : 0,
+    perfectCount: typeof raw.perfectCount === 'number' && raw.perfectCount >= 0 ? raw.perfectCount : 0,
   };
 }
 
@@ -76,8 +85,11 @@ export function recoverFlowDepth(loaded: FLCumulativeStats, mirrorDepth: number)
  * Плоский снапшот для движка наград. Cumulative берутся «вживую» (текущий уровень прибавляется к
  * итогам), иначе вехи totalScore не срабатывали бы до конца уровня. Per-game (score/moves) —
  * как есть; их edge-гейтит achievements.ts (PER_GAME_STATS).
+ * Фаза 2.5: game.stars (звёзды этого уровня, undefined=не выиграно/резюм=0) добавляется живым
+ * суммой к totalStars/perfectCount — точно как game.score → totalScore. Edge-гейтятся.
  */
 export function buildFLSnapshot(stats: FLCumulativeStats, game: FlowCurrentGame): StatSnapshot {
+  const winStars = game.stars ?? 0;
   return {
     [FL_KEYS.score]: game.score,
     [FL_KEYS.moves]: game.moves,
@@ -86,14 +98,33 @@ export function buildFLSnapshot(stats: FLCumulativeStats, game: FlowCurrentGame)
     [FL_KEYS.gamesPlayed]: stats.gamesPlayed,
     // maxLevel — монотонный; level-триггер, edge-гейтится (НЕ в PER_GAME_STATS).
     [FL_KEYS.maxLevel]: stats.maxLevel,
+    // Фаза 2.5: монотонные счётчики звёзд — edge-гейтятся в EDGE_MONOTONIC_STATS.
+    [FL_KEYS.totalStars]: stats.totalStars + winStars,
+    [FL_KEYS.perfectCount]: stats.perfectCount + (winStars === 3 ? 1 : 0),
   };
 }
 
 /** Закрытие уровня: вкатываем его показатели в cumulative. gamesPlayed считается при старте уровня. */
 export function commitFLGame(stats: FLCumulativeStats, game: FlowCurrentGame): FLCumulativeStats {
+  const winStars = game.stars ?? 0;
   return {
     ...stats,
     totalScore: stats.totalScore + game.score,
     bestScore: Math.max(stats.bestScore, game.score),
+    totalStars: stats.totalStars + winStars,
+    perfectCount: stats.perfectCount + (winStars === 3 ? 1 : 0),
   };
+}
+
+/**
+ * Число звёзд за уровень. par = K (кол-во пар). Фаза 2.5.
+ *  3★ «Идеально»:  moves === K (каждую пару ровно одним штрихом, без перерисовок).
+ *  2★ «Хорошо»:    moves <= Math.ceil(K * 1.6) (пара поправок).
+ *  1★:             решено (любые ходы).
+ */
+export function computeFlowStars(moves: number, K: number): 1 | 2 | 3 {
+  if (K <= 0) return 1;
+  if (moves === K) return 3;
+  if (moves <= Math.ceil(K * 1.6)) return 2;
+  return 1;
 }

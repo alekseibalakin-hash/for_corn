@@ -14,6 +14,7 @@ import { flowDepthMirror } from '../match3/depthMirror';
 import {
   buildFLSnapshot,
   commitFLGame,
+  computeFlowStars,
   defaultFLGame,
   defaultFLStats,
   normalizeFLStats,
@@ -51,6 +52,8 @@ export function useFlow() {
   // Незаконченный уровень при входе → диалог «Продолжить / Заново».
   const [resumeChoice, setResumeChoiceState] = useState<FlowLevelState | null>(null);
   const [confirmRestart, setConfirmRestart] = useState(false);
+  /** Звёзды за последний выигранный уровень (0 = ещё не выигрывали). Фаза 2.5. */
+  const [lastWinStars, setLastWinStars] = useState(0);
 
   // Зеркала для синхронного чтения в обработчиках pointer events (как в useBlocks).
   const levelRef = useRef(level);
@@ -196,6 +199,10 @@ export function useFlow() {
 
     const prevSnapshot = buildFLSnapshot(statsRef.current, gameRef.current);
 
+    // §1 Фаза 2.5: звёзды вычисляются СИНХРОННО по par=K (брифа §1), ДО grant.
+    const K = pairsRef.current.length;
+    const starsEarned = computeFlowStars(gameRef.current.moves, K);
+
     // Монотонный бамп maxLevel ПЕРЕД grant (§2.1 бриф, edge-гейт несёт новое значение).
     const nextStats = { ...statsRef.current, maxLevel: Math.max(statsRef.current.maxLevel, levelRef.current) };
     // §2.2 бриф: синхронная запись зеркала — переживает мгновенное закрытие.
@@ -204,12 +211,15 @@ export function useFlow() {
     const nextGame: FlowCurrentGame = {
       score: levelScore(sizeRef.current),
       moves: gameRef.current.moves,
+      stars: starsEarned, // live-сумма в buildFLSnapshot (как score → totalScore)
     };
     const finalStats = commitFLGame(nextStats, nextGame);
     setStats(finalStats);
     setGame(nextGame);
+    setLastWinStars(starsEarned);
     setStatus('won');
 
+    // buildFLSnapshot(nextStats, nextGame): totalStars = nextStats.totalStars + starsEarned (живой вклад)
     rewards.grant(GAME_ID, buildFLSnapshot(nextStats, nextGame), prevSnapshot);
     rewards.notifyGameEnded();
     persistStats();
@@ -270,6 +280,7 @@ export function useFlow() {
     status,
     maxLevel: stats.maxLevel,
     game,
+    lastWinStars,
     resumeChoice,
     confirmRestart,
     // Для Flow.tsx: нужны ref'ы для синхронного чтения в pointer-обработчиках.

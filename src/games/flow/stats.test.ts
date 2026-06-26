@@ -5,6 +5,7 @@ import {
   FL_KEYS,
   buildFLSnapshot,
   commitFLGame,
+  computeFlowStars,
   defaultFLGame,
   defaultFLStats,
   normalizeFLGame,
@@ -58,7 +59,7 @@ describe('recoverFlowDepth — read-repair max(cloud, зеркало) (§2.2, ф
   });
 
   it('прочие cumulative-поля сохраняются при подъёме глубины', () => {
-    const loaded = { totalScore: 999, bestScore: 200, gamesPlayed: 5, maxLevel: 3 };
+    const loaded = { ...defaultFLStats(), totalScore: 999, bestScore: 200, gamesPlayed: 5, maxLevel: 3 };
     const recovered = recoverFlowDepth(loaded, 9);
     expect(recovered).toEqual({ ...loaded, maxLevel: 9 });
   });
@@ -66,7 +67,7 @@ describe('recoverFlowDepth — read-repair max(cloud, зеркало) (§2.2, ф
 
 describe('buildFLSnapshot — плоский снапшот для движка наград', () => {
   it('per-game (score/moves) — как есть; cumulative totalScore/bestScore — с текущим уровнем', () => {
-    const stats = { totalScore: 500, bestScore: 200, gamesPlayed: 3, maxLevel: 4 };
+    const stats = { ...defaultFLStats(), totalScore: 500, bestScore: 200, gamesPlayed: 3, maxLevel: 4 };
     const game = { score: 250, moves: 18 };
     const snap = buildFLSnapshot(stats, game);
     expect(snap[FL_KEYS.score]).toBe(250);
@@ -75,6 +76,9 @@ describe('buildFLSnapshot — плоский снапшот для движка 
     expect(snap[FL_KEYS.bestScore]).toBe(250); // max(200, 250)
     expect(snap[FL_KEYS.gamesPlayed]).toBe(3);
     expect(snap[FL_KEYS.maxLevel]).toBe(4);
+    // Фаза 2.5: звёзды без game.stars → 0
+    expect(snap[FL_KEYS.totalStars]).toBe(0);
+    expect(snap[FL_KEYS.perfectCount]).toBe(0);
   });
 
   it('bestScore учитывает текущий уровень, если выше рекорда', () => {
@@ -90,15 +94,35 @@ describe('buildFLSnapshot — плоский снапшот для движка 
     expect(buildFLSnapshot(after, defaultFLGame())[FL_KEYS.maxLevel]).toBe(5);
   });
 
+  it('Фаза 2.5: game.stars несёт живую сумму звёзд (как game.score → totalScore)', () => {
+    const stats = { ...defaultFLStats(), totalStars: 10, perfectCount: 2 };
+    const game3 = { score: 0, moves: 5, stars: 3 as const };
+    const game2 = { score: 0, moves: 8, stars: 2 as const };
+    const game1 = { score: 0, moves: 20, stars: 1 as const };
+    expect(buildFLSnapshot(stats, game3)[FL_KEYS.totalStars]).toBe(13);
+    expect(buildFLSnapshot(stats, game3)[FL_KEYS.perfectCount]).toBe(3);
+    expect(buildFLSnapshot(stats, game2)[FL_KEYS.totalStars]).toBe(12);
+    expect(buildFLSnapshot(stats, game2)[FL_KEYS.perfectCount]).toBe(2);
+    expect(buildFLSnapshot(stats, game1)[FL_KEYS.totalStars]).toBe(11);
+    expect(buildFLSnapshot(stats, game1)[FL_KEYS.perfectCount]).toBe(2);
+  });
+
   it('все ключи снапшота под префиксом fl_ (совпадение с achievements.ts / game:\'fl\')', () => {
     const snap = buildFLSnapshot(defaultFLStats(), defaultFLGame());
     for (const key of Object.keys(snap)) expect(key.startsWith('fl_')).toBe(true);
+  });
+
+  it('Фаза 2.5: снапшот несёт fl_totalStars и fl_perfectCount', () => {
+    const stats = { ...defaultFLStats(), totalStars: 42, perfectCount: 7, maxLevel: 10 };
+    const snap = buildFLSnapshot(stats, defaultFLGame());
+    expect(snap[FL_KEYS.totalStars]).toBe(42);
+    expect(snap[FL_KEYS.perfectCount]).toBe(7);
   });
 });
 
 describe('commitFLGame — закрытие уровня вкатывает очки в cumulative', () => {
   it('totalScore += score, bestScore = max; maxLevel/gamesPlayed не трогает', () => {
-    const stats = { totalScore: 100, bestScore: 80, gamesPlayed: 2, maxLevel: 3 };
+    const stats = { ...defaultFLStats(), totalScore: 100, bestScore: 80, gamesPlayed: 2, maxLevel: 3 };
     const game = { score: 250, moves: 10 };
     const next = commitFLGame(stats, game);
     expect(next.totalScore).toBe(350);
@@ -108,9 +132,37 @@ describe('commitFLGame — закрытие уровня вкатывает оч
   });
 
   it('сохраняет поднятую на победе maxLevel (commit поверх bumped stats)', () => {
-    const bumped = { totalScore: 0, bestScore: 0, gamesPlayed: 1, maxLevel: 7 };
+    const bumped = { ...defaultFLStats(), gamesPlayed: 1, maxLevel: 7 };
     const game = { score: 360, moves: 8 };
     expect(commitFLGame(bumped, game).maxLevel).toBe(7);
+  });
+
+  it('Фаза 2.5: 3★ — totalStars+=3, perfectCount+=1', () => {
+    const stats = defaultFLStats();
+    const next = commitFLGame(stats, { score: 250, moves: 5, stars: 3 });
+    expect(next.totalStars).toBe(3);
+    expect(next.perfectCount).toBe(1);
+  });
+
+  it('Фаза 2.5: 2★ — totalStars+=2, perfectCount не растёт', () => {
+    const stats = { ...defaultFLStats(), totalStars: 10, perfectCount: 2 };
+    const next = commitFLGame(stats, { score: 100, moves: 8, stars: 2 });
+    expect(next.totalStars).toBe(12);
+    expect(next.perfectCount).toBe(2);
+  });
+
+  it('Фаза 2.5: 1★ — totalStars+=1, perfectCount не растёт', () => {
+    const stats = { ...defaultFLStats(), totalStars: 5 };
+    const next = commitFLGame(stats, { score: 100, moves: 20, stars: 1 });
+    expect(next.totalStars).toBe(6);
+    expect(next.perfectCount).toBe(0);
+  });
+
+  it('Фаза 2.5: game.stars undefined (резюм без победы) → не трогает счётчики', () => {
+    const stats = { ...defaultFLStats(), totalStars: 7, perfectCount: 3 };
+    const next = commitFLGame(stats, { score: 0, moves: 0 });
+    expect(next.totalStars).toBe(7);
+    expect(next.perfectCount).toBe(3);
   });
 });
 
@@ -122,6 +174,74 @@ describe('normalizeFLGame — мягкое чтение per-game', () => {
 
   it('частичный blob дополняется дефолтами', () => {
     expect(normalizeFLGame({ score: 120 })).toEqual({ score: 120, moves: 0 });
+  });
+});
+
+describe('computeFlowStars — par=K, звёзды 1-3 (Фаза 2.5 §1)', () => {
+  it('3★: moves === K (каждую пару одним штрихом)', () => {
+    expect(computeFlowStars(5, 5)).toBe(3);
+    expect(computeFlowStars(8, 8)).toBe(3);
+    expect(computeFlowStars(3, 3)).toBe(3);
+  });
+
+  it('2★: moves <= Math.ceil(K * 1.6) — пара поправок', () => {
+    // K=5: ceil(5*1.6)=8 → ≤8 = 2★, >8 = 1★
+    expect(computeFlowStars(6, 5)).toBe(2);
+    expect(computeFlowStars(8, 5)).toBe(2);
+    expect(computeFlowStars(9, 5)).toBe(1);
+    // K=8: ceil(8*1.6)=13 → ≤13 = 2★, >13 = 1★
+    expect(computeFlowStars(9, 8)).toBe(2);
+    expect(computeFlowStars(13, 8)).toBe(2);
+    expect(computeFlowStars(14, 8)).toBe(1);
+    // K=3: ceil(3*1.6)=5 → ≤5 = 2★, >5 = 1★
+    expect(computeFlowStars(4, 3)).toBe(2);
+    expect(computeFlowStars(5, 3)).toBe(2);
+    expect(computeFlowStars(6, 3)).toBe(1);
+  });
+
+  it('1★: любые ходы сверх порога', () => {
+    expect(computeFlowStars(20, 5)).toBe(1);
+    expect(computeFlowStars(100, 8)).toBe(1);
+  });
+
+  it('K <= 0 → 1★ (защита от деления на 0 / NaN)', () => {
+    expect(computeFlowStars(1, 0)).toBe(1);
+    expect(computeFlowStars(0, 0)).toBe(1);
+  });
+});
+
+describe('normalizeFLStats — аддитивная миграция totalStars/perfectCount (Фаза 2.5)', () => {
+  it('старый blob без новых полей → 0 (не undefined/не падение на cold load)', () => {
+    const old = { totalScore: 500, bestScore: 200, gamesPlayed: 10, maxLevel: 25 };
+    const s = normalizeFLStats(old);
+    expect(s.totalStars).toBe(0);
+    expect(s.perfectCount).toBe(0);
+  });
+
+  it('blob с totalStars/perfectCount → читается как есть', () => {
+    const s = normalizeFLStats({ totalStars: 42, perfectCount: 7, maxLevel: 10 });
+    expect(s.totalStars).toBe(42);
+    expect(s.perfectCount).toBe(7);
+  });
+
+  it('отрицательные/битые → 0 (порченый blob не роняет игру)', () => {
+    const s = normalizeFLStats({ totalStars: -1, perfectCount: 'oops' as unknown as number });
+    expect(s.totalStars).toBe(0);
+    expect(s.perfectCount).toBe(0);
+  });
+});
+
+describe('edge-гейт звёзд — fl_totalStars/fl_perfectCount не перевыдаются', () => {
+  it('prevSnapshot уже ≥ порога → alreadyCrossed (edge-гейт, урок v18)', () => {
+    // Симулируем: старый totalStars=50, новый тоже 50 (не перешли порог в этот заход)
+    const before = { ...defaultFLStats(), totalStars: 50, perfectCount: 10 };
+    const after = { ...before, totalStars: 53, perfectCount: 11 };
+    const snapBefore = buildFLSnapshot(before, defaultFLGame());
+    const snapAfter = buildFLSnapshot(after, defaultFLGame());
+    // prevSnapshot уже ≥ 50 → edge-гейт блокирует fl-stars-50
+    expect(snapBefore[FL_KEYS.totalStars]).toBe(50); // «старт с 50» → уже пересечено
+    // Но новые вехи (например 150) ещё нет:
+    expect(snapAfter[FL_KEYS.totalStars]).toBe(53); // не пересекает 150
   });
 });
 

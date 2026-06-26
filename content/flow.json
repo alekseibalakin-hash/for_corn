@@ -1,11 +1,10 @@
 {
-  "_comment": "Кривая сложности Flow «Соедини фигурки» (DESIGN-FLOW.md §4, briefs/flow-phase1.md §6). Бэнды по диапазонам уровней (как blocks.json/spicy.json): size — сторона поля N (главный рычаг, монотонно растёт 5→8); pairsMin/pairsMax — число пар K (тонкий рычаг, калибруется); minBendRatio — порог винтистости сегментов (анти-тривиальность, растёт с глубиной); colorOff — трассы нейтральны, пара только по фигуре (тяжелее, глубокие бэнды). ПОТОЛОК ЧЕСТНОСТИ: size ≤ 8, pairsMax ≤ size+2. Монотонны (size/minBendRatio не убывают). РУЧКА — validateFlowBands проверяет инварианты. ПРАВИЛО №1 (проходимость) — из конструкции, не из этих чисел.",
+  "_comment": "Кривая сложности Flow «Соедини фигурки» (DESIGN-FLOW.md §4, briefs/flow-phase1.md §3-§6). Бэнды по диапазонам уровней (как blocks.json/spicy.json): size — сторона поля N (монотонно растёт 5→8, НЕ выше 8 — замер: 8×8 0% unique, пазл тривиален); pairsMin/pairsMax — число пар K (тонкий рычаг уникальности: чем больше K, тем меньше решений — на 6×6 K=7-8 даёт ≈35% unique); minBendRatio — порог винтистости (анти-тривиальность); colorOff — трассы нейтральны, пара только по фигуре (тяжелее, глубокие бэнды). ПОТОЛОК ЧЕСТНОСТИ: size ≤ 8, pairsMax ≤ size+2. Монотонны (size/minBendRatio не убывают). РУЧКА — validateFlowBands проверяет инварианты. ПРАВИЛО №1 (проходимость) — из конструкции, не из этих чисел. ФАЗА 2.5: K поднят на малых полях (уникальность вверх на 5-6×6); размер не растёт за 8 (замер: 8×8 уник недостижим). Сложность вглубь несут par/звёзды + colorOff.",
   "bands": [
-    { "maxLevel": 3,   "size": 5, "pairsMin": 3, "pairsMax": 4, "minBendRatio": 0.20 },
-    { "maxLevel": 7,   "size": 6, "pairsMin": 4, "pairsMax": 5, "minBendRatio": 0.28 },
-    { "maxLevel": 12,  "size": 6, "pairsMin": 5, "pairsMax": 6, "minBendRatio": 0.34 },
-    { "maxLevel": 18,  "size": 7, "pairsMin": 5, "pairsMax": 7, "minBendRatio": 0.40 },
-    { "maxLevel": 25,  "size": 8, "pairsMin": 6, "pairsMax": 8, "minBendRatio": 0.45 },
-    { "maxLevel": 999, "size": 8, "pairsMin": 6, "pairsMax": 9, "minBendRatio": 0.50, "colorOff": true }
+    { "maxLevel": 3,   "size": 5, "pairsMin": 3, "pairsMax": 4,  "minBendRatio": 0.20 },
+    { "maxLevel": 8,   "size": 6, "pairsMin": 6, "pairsMax": 8,  "minBendRatio": 0.30 },
+    { "maxLevel": 14,  "size": 7, "pairsMin": 7, "pairsMax": 9,  "minBendRatio": 0.35 },
+    { "maxLevel": 22,  "size": 8, "pairsMin": 8, "pairsMax": 10, "minBendRatio": 0.40 },
+    { "maxLevel": 999, "size": 8, "pairsMin": 8, "pairsMax": 10, "minBendRatio": 0.40, "colorOff": true }
   ]
 }
