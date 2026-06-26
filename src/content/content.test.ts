@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Achievement, Reward } from './types';
 import {
   achievements,
+  flowBandForLevel,
+  flowConfig,
   maxChallengeCouponsPerDay,
   rewardById,
   rewardsByTier,
@@ -73,6 +75,38 @@ describe('контент-конфиги', () => {
     }
     expect(thresholds).toEqual([1, 3, 5, 8, 12, 18, 25]); // нелинейные = нет грайнда
     expect(achievements.find((a) => a.id === 'm3-spicy-25')?.rewardId).toBe('fine-dining'); // вершина — ужин высокой кухни (A4: restaurant только у reach-2048)
+  });
+});
+
+describe('кривая Flow «Соедини фигурки» валидна и монотонна (size/изгиб растут, потолок честности)', () => {
+  it('validateContent включает validateFlowBands (бэнды корректны)', () => {
+    expect(validateContent()).toEqual([]);
+    expect(flowConfig.bands.length).toBeGreaterThan(0);
+  });
+
+  it('size не убывает, minBendRatio не убывает, потолок size≤8 / pairsMax≤size+2 для 1..50', () => {
+    for (let level = 2; level <= 50; level++) {
+      const prev = flowBandForLevel(level - 1);
+      const cur = flowBandForLevel(level);
+      expect(cur.size).toBeGreaterThanOrEqual(prev.size);
+      expect(cur.minBendRatio).toBeGreaterThanOrEqual(prev.minBendRatio);
+    }
+    for (let level = 1; level <= 50; level++) {
+      const band = flowBandForLevel(level);
+      expect(band.size).toBeLessThanOrEqual(8);
+      expect(band.size).toBeGreaterThanOrEqual(2);
+      expect(band.pairsMin).toBeGreaterThanOrEqual(2);
+      expect(band.pairsMax).toBeGreaterThanOrEqual(band.pairsMin);
+      expect(band.pairsMax).toBeLessThanOrEqual(band.size + 2);
+      expect(band.minBendRatio).toBeGreaterThanOrEqual(0);
+      expect(band.minBendRatio).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('flowBandForLevel: первый бэнд, чей maxLevel ≥ level; за последним — sentinel-бэнд', () => {
+    expect(flowBandForLevel(1).size).toBe(5);
+    expect(flowBandForLevel(25).size).toBe(8);
+    expect(flowBandForLevel(9999).colorOff).toBe(true); // глубокий бэнд «без цвета»
   });
 });
 

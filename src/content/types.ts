@@ -131,6 +131,26 @@ export interface BlocksConfig {
   bands: BlocksBand[];
 }
 
+// --- Flow «Соедини фигурки»: кривая сложности (DESIGN-FLOW.md §4) ---
+
+/** Один бэнд сложности Flow по диапазону уровней. */
+export interface FlowBand {
+  maxLevel: number;
+  /** Сторона поля N (главный рычаг сложности, монотонно растёт). */
+  size: number;
+  /** Сколько пар концов K минимум/максимум. */
+  pairsMin: number;
+  pairsMax: number;
+  /** Порог доли «изгибов» в сегментах (анти-тривиальность), растёт с глубиной. 0..1. */
+  minBendRatio: number;
+  /** Глубокие бэнды: трассы нейтральны, пара опознаётся только по фигуре (тяжелее). */
+  colorOff?: boolean;
+}
+
+export interface FlowConfig {
+  bands: FlowBand[];
+}
+
 export function isCondition(t: Trigger): t is Condition {
   return 'stat' in t;
 }

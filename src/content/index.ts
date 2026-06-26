@@ -1,5 +1,6 @@
 import achievementsJson from '../../content/achievements.json';
 import blocksJson from '../../content/blocks.json';
+import flowJson from '../../content/flow.json';
 import rewardsJson from '../../content/rewards.json';
 import spicyJson from '../../content/spicy.json';
 import {
@@ -10,6 +11,8 @@ import {
   type AchievementsConfig,
   type BlocksBand,
   type BlocksConfig,
+  type FlowBand,
+  type FlowConfig,
   type Reward,
   type RewardsConfig,
   type SpicyBand,
@@ -29,6 +32,7 @@ export const rewardsConfig = rewardsJson as unknown as RewardsConfig;
 export const achievementsConfig = achievementsJson as unknown as AchievementsConfig;
 export const spicyConfig = spicyJson as unknown as SpicyConfig;
 export const blocksConfig = blocksJson as unknown as BlocksConfig;
+export const flowConfig = flowJson as unknown as FlowConfig;
 
 /** Бэнд сложности «перчинки» для уровня: первый бэнд, чей `maxLevel >= level` (бэнды отсортированы). */
 export function spicyBandForLevel(level: number): SpicyBand {
@@ -40,6 +44,13 @@ export function spicyBandForLevel(level: number): SpicyBand {
 /** Бэнд сложности «блоков-фигур» для уровня. */
 export function blocksBandForLevel(level: number): BlocksBand {
   const bands = blocksConfig.bands;
+  for (const band of bands) if (level <= band.maxLevel) return band;
+  return bands[bands.length - 1];
+}
+
+/** Бэнд сложности Flow «Соедини фигурки» для уровня. */
+export function flowBandForLevel(level: number): FlowBand {
+  const bands = flowConfig.bands;
   for (const band of bands) if (level <= band.maxLevel) return band;
   return bands[bands.length - 1];
 }
@@ -151,6 +162,7 @@ export function validateContent(): string[] {
 
   problems.push(...validateSpicyBands());
   problems.push(...validateBlocksBands());
+  problems.push(...validateFlowBands());
 
   return problems;
 }
@@ -255,6 +267,35 @@ function validateBlocksBands(): string[] {
       if (b.maxLevel <= prev.maxLevel) problems.push(`blocks band ${i}: maxLevel не возрастает`);
       if (b.blocksMin < prev.blocksMin || b.blocksMax < prev.blocksMax) problems.push(`blocks band ${i}: блоки убывают (не монотонно)`);
       if (b.budgetMultiplier > prev.budgetMultiplier) problems.push(`blocks band ${i}: generosity растёт (должна убывать)`);
+    }
+    prev = b;
+  }
+  return problems;
+}
+
+// ПОТОЛОК ЧЕСТНОСТИ Flow (DESIGN-FLOW §4): size ≤ 8 (гамильтон/солвер быстрые), pairsMax ≤ size+2.
+const FLOW_SIZE_CEILING = 8;
+
+/**
+ * Инварианты кривой Flow (брифа §6): size не убывает и в [2,8]; 2 ≤ pairsMin ≤ pairsMax ≤ size+2;
+ * minBendRatio ∈ [0,1] и не убывает; maxLevel возрастает. Ловит кривой JSON до того, как он даст
+ * нечестный/непостроимый уровень (проходимость гарантируется конструкцией, но потолки — здесь).
+ */
+function validateFlowBands(): string[] {
+  const problems: string[] = [];
+  const bands = flowConfig.bands;
+  if (!Array.isArray(bands) || bands.length === 0) return ['flow: нет ни одного бэнда сложности'];
+  let prev: FlowBand | null = null;
+  for (let i = 0; i < bands.length; i++) {
+    const b = bands[i];
+    if (b.size < 2 || b.size > FLOW_SIZE_CEILING) problems.push(`flow band ${i}: size вне [2,${FLOW_SIZE_CEILING}]`);
+    if (b.pairsMin < 2 || b.pairsMax < b.pairsMin) problems.push(`flow band ${i}: некорректный диапазон пар`);
+    if (b.pairsMax > b.size + 2) problems.push(`flow band ${i}: pairsMax > size+2 (потолок честности)`);
+    if (b.minBendRatio < 0 || b.minBendRatio > 1) problems.push(`flow band ${i}: minBendRatio вне [0,1]`);
+    if (prev) {
+      if (b.maxLevel <= prev.maxLevel) problems.push(`flow band ${i}: maxLevel не возрастает`);
+      if (b.size < prev.size) problems.push(`flow band ${i}: size убывает (не монотонно)`);
+      if (b.minBendRatio < prev.minBendRatio) problems.push(`flow band ${i}: minBendRatio убывает (не монотонно)`);
     }
     prev = b;
   }

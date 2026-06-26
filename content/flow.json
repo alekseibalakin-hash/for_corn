@@ -1,0 +1,11 @@
+{
+  "_comment": "Кривая сложности Flow «Соедини фигурки» (DESIGN-FLOW.md §4, briefs/flow-phase1.md §6). Бэнды по диапазонам уровней (как blocks.json/spicy.json): size — сторона поля N (главный рычаг, монотонно растёт 5→8); pairsMin/pairsMax — число пар K (тонкий рычаг, калибруется); minBendRatio — порог винтистости сегментов (анти-тривиальность, растёт с глубиной); colorOff — трассы нейтральны, пара только по фигуре (тяжелее, глубокие бэнды). ПОТОЛОК ЧЕСТНОСТИ: size ≤ 8, pairsMax ≤ size+2. Монотонны (size/minBendRatio не убывают). РУЧКА — validateFlowBands проверяет инварианты. ПРАВИЛО №1 (проходимость) — из конструкции, не из этих чисел.",
+  "bands": [
+    { "maxLevel": 3,   "size": 5, "pairsMin": 3, "pairsMax": 4, "minBendRatio": 0.20 },
+    { "maxLevel": 7,   "size": 6, "pairsMin": 4, "pairsMax": 5, "minBendRatio": 0.28 },
+    { "maxLevel": 12,  "size": 6, "pairsMin": 5, "pairsMax": 6, "minBendRatio": 0.34 },
+    { "maxLevel": 18,  "size": 7, "pairsMin": 5, "pairsMax": 7, "minBendRatio": 0.40 },
+    { "maxLevel": 25,  "size": 8, "pairsMin": 6, "pairsMax": 8, "minBendRatio": 0.45 },
+    { "maxLevel": 999, "size": 8, "pairsMin": 6, "pairsMax": 9, "minBendRatio": 0.50, "colorOff": true }
+  ]
+}
