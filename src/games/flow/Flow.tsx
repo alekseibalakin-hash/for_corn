@@ -284,6 +284,15 @@ function FlowGame({ onBack, onOpenWallet }: FlowProps) {
     );
   }).length;
 
+  // Победа Flow = ВСЕ пары соединены И ВСЁ поле заполнено (isSolvedByPlayer). Раньше HUD показывал
+  // только «соединено K/K» — игрок соединял все фигурки, видел K/K и думал что прошёл, но оставались
+  // пустые клетки ⇒ уровень не засчитывался и «не давал следующий». Теперь показываем ЗАПОЛНЕНИЕ поля
+  // (бинд-условие победы) + подсказку, когда все пары соединены, но поле не заполнено.
+  const totalCells = size * size;
+  const filledCount = occMap.reduce((s, row) => s + row.filter((x) => x >= 0).length, 0);
+  const allConnected = pairs.length > 0 && connectedCount === pairs.length;
+  const boardFull = filledCount === totalCells;
+
   const overlayBlocked = fl.status !== 'playing' || !!fl.resumeChoice || fl.confirmRestart;
 
   return (
@@ -321,11 +330,16 @@ function FlowGame({ onBack, onOpenWallet }: FlowProps) {
           <div className="text-lg font-extrabold leading-tight text-ink">{fl.level}</div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-card bg-board px-3 py-1.5">
+          {/* ЗАПОЛНЕНИЕ поля — бинд-условие победы. 25/25 = поле заполнено ⇒ уровень пройден. */}
+          <div
+            className="flex items-center gap-1.5 rounded-card bg-board px-3 py-1.5"
+            style={boardFull ? { backgroundColor: 'rgba(95,184,111,0.35)' } : undefined}
+          >
             <span className="text-base leading-none">🌈</span>
-            <span className="text-lg font-extrabold leading-tight text-ink">
-              {connectedCount}/{pairs.length}
-            </span>
+            <div className="text-center leading-none">
+              <div className="text-[0.5rem] font-bold uppercase tracking-wide text-muted">поле</div>
+              <div className="text-lg font-extrabold leading-tight text-ink">{filledCount}/{totalCells}</div>
+            </div>
           </div>
           {/* par K — подсказка-цель: 3★ = ровно K штрихов (Фаза 2.5 §1). */}
           <div className="rounded-card bg-board px-2.5 py-1.5 text-center">
@@ -342,6 +356,17 @@ function FlowGame({ onBack, onOpenWallet }: FlowProps) {
           </button>
         </div>
       </div>
+
+      {/* Подсказка: все пары соединены, но поле НЕ заполнено — главный источник путаницы «не даёт
+          следующий уровень». Победа требует ЗАПОЛНИТЬ ВСЁ поле, а не только соединить фигурки. */}
+      {fl.status === 'playing' && allConnected && !boardFull && (
+        <div
+          className="rounded-card px-3 py-2 text-center text-sm font-bold"
+          style={{ backgroundColor: 'rgba(244,177,61,0.20)', color: '#9a6a14' }}
+        >
+          Все фигурки соединены ✓ — теперь заполни ВСЁ поле! Осталось {totalCells - filledCount} 🌈
+        </div>
+      )}
 
       {/* Поле: фоновый грид + SVG трассы + концы с иконками.
           Ref на внутренний грид → cellFromPoint правильно меряет rect (без padding контейнера).
