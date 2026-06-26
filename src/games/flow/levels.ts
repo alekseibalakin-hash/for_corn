@@ -260,9 +260,15 @@ export function countFlowSolutions(
   limit: number,
   nodeCap: number,
 ): number {
+  // Контракт «НЕ кидает / НЕ виснет» честен и для ПУБЛИЧНЫХ вызовов (Фаза 2 может звать из UI): жёсткие
+  // гарды на мусор ДО разыменования pairs.length и до цикла (адверс-ревью wv0chjf3r, LOW-робастность).
+  if (!Number.isInteger(size) || size <= 0 || !Array.isArray(pairs)) return 0;
+  if (!Number.isInteger(limit) || limit <= 0) return 0;
   const N = size * size;
   const K = pairs.length;
-  if (K === 0 || limit <= 0) return 0;
+  if (K === 0) return 0;
+  // Не-конечный nodeCap (Infinity/NaN) не должен снимать предохранитель зависания.
+  const cap = Number.isFinite(nodeCap) ? nodeCap : 0;
 
   const EMPTY = -1;
   const color = new Int32Array(N).fill(EMPTY);
@@ -379,7 +385,7 @@ export function countFlowSolutions(
 
   const dfs = (): void => {
     if (solutions >= limit || capped) return;
-    if (nodes++ > nodeCap) {
+    if (nodes++ > cap) {
       capped = true;
       return;
     }
@@ -565,7 +571,9 @@ function isValidPathArray(raw: unknown, size: number): raw is Coord[][] {
 export function normalizeFlow(raw: unknown): FlowLevelState | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Partial<FlowLevelState>;
-  if (typeof r.level !== 'number' || r.level < 1) return null;
+  // Number.isFinite отсекает Infinity/NaN (иначе level=Infinity пережил бы guard `< 1` и просочился в
+  // слот → узкий wrong-accept; адверс-ревью wv0chjf3r). Дробное finite — ок, ниже Math.floor (бриф §5).
+  if (typeof r.level !== 'number' || !Number.isFinite(r.level) || r.level < 1) return null;
   if (typeof r.seed !== 'number') return null;
   if (typeof r.size !== 'number' || !Number.isInteger(r.size) || r.size < 1) return null;
   if (!isValidPairArray(r.pairs, r.size)) return null;

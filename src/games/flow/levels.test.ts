@@ -235,6 +235,21 @@ describe('countFlowSolutions — независимый witness качества
       expect(countFlowSolutions(5, bad as never, 2, 1000)).toBe(0);
     }
   });
+
+  it('null/undefined pairs, не-int size, не-int limit → 0, НЕ кидает (ревью wv0chjf3r)', () => {
+    expect(() => countFlowSolutions(5, null as never, 2, 100)).not.toThrow();
+    expect(countFlowSolutions(5, null as never, 2, 100)).toBe(0);
+    expect(countFlowSolutions(5, undefined as never, 2, 100)).toBe(0);
+    expect(countFlowSolutions(Infinity, [], 2, 100)).toBe(0);
+    expect(countFlowSolutions(NaN, [], 2, 100)).toBe(0);
+    expect(countFlowSolutions(5.5, [], 2, 100)).toBe(0);
+    expect(countFlowSolutions(5, [{ figure: 'h', color: '#1', a: C(0, 0), b: C(4, 4) }], NaN, 100)).toBe(0);
+  });
+
+  it('Infinity nodeCap НЕ снимает предохранитель зависания → завершается (cap→0 ⇒ SOLVE_CAP_EXCEEDED)', () => {
+    const r = countFlowSolutions(3, [{ figure: 'h', color: '#1', a: C(0, 0), b: C(2, 2) }], 2, Infinity);
+    expect(r).toBe(SOLVE_CAP_EXCEEDED);
+  });
 });
 
 // ============================================================================
@@ -269,6 +284,16 @@ describe('normalizeFlow', () => {
 
   it('level < 1 → null', () => {
     expect(normalizeFlow({ ...valid, level: 0 })).toBeNull();
+  });
+
+  it('level Infinity/NaN → null (не-конечный не просачивается в слот; ревью wv0chjf3r)', () => {
+    expect(normalizeFlow({ ...valid, level: Infinity })).toBeNull();
+    expect(normalizeFlow({ ...valid, level: -Infinity })).toBeNull();
+    expect(normalizeFlow({ ...valid, level: NaN })).toBeNull();
+  });
+
+  it('level дробный finite → округляется вниз (бриф §5, isFinite не isInteger — НЕ отвергаем)', () => {
+    expect(normalizeFlow({ ...valid, level: 4.9 })!.level).toBe(4);
   });
 
   it('битый size → null', () => {
